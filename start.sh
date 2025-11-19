@@ -1,5 +1,23 @@
-sudo apt update
-sudo apt upgrade -y python3
+#!/bin/bash
+
+source bot-env/bin/activate
+
+# Ask if they would like to update python3 before running the bot
+read -p "Would you like to update python3 before running the bot? (y/n): " update_python
+if [[ "$update_python" != "y" && "$update_python" != "n" ]]; then
+    echo "Invalid input. Please enter 'y' or 'n'."
+    exit 1
+fi
+if [ "$update_python" == "y" ]; then
+    echo "Updating python3..."
+else
+    echo "Skipping python3 update."
+fi
+if [ "$update_python" == "y" ]; then
+    sudo apt update
+    sudo apt upgrade -y python3
+fi
+
 
 ## Check to see if there are any new changes to main repo (ScottN13/spawncamped)
 git fetch origin
@@ -12,5 +30,8 @@ else
     echo "No updates found. Continuing to start the bot."
 fi
 
+echo ""
+echo "--------------------------------"
+echo ""
 
 python3 main.py
