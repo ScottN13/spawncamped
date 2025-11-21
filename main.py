@@ -2,6 +2,7 @@ import discord
 import os
 import logging
 import time
+from rich import print as say
 from dotenv import load_dotenv
 from discord.ext import commands
 
@@ -9,7 +10,9 @@ from discord.ext import commands
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
 
-handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
@@ -21,28 +24,30 @@ MY_GUILD = discord.Object(id=1433854304678318183)
 @bot.event
 async def on_ready():
     assert bot.user is not None
-    print(f'logged in as {bot.user}')
-    print(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
-    print(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
-    print("----------------------------")
+    say(f'[green]logged in as {bot.user}')
+    say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
+    say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
+    say("[green][bold]----------------------------")
     await bot.change_presence(activity=activity, status=discord.Status.idle)
 
 
 
 @bot.command(name="ping", description="ping") 
 async def ping(ctx):
+    say(f"Ping command called by [blue]{ctx.author}")
     await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
 
 
 @bot.command(name='add')
 async def add(ctx, left: int, right: int):
     """Adds two numbers together."""
+    say(f"Add command called by {ctx.author} with arguments: {left}, {right}")
     await ctx.send(left + right)
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
    if ctx.author.id == 429526435732914188:
-        print(f"Shutdown command issued by {ctx.author}")
+        say(f"Shutdown command issued by {ctx.author}")
         await ctx.send("FUCK ALL OF YOU")
         time.sleep(1)
         await ctx.send("DONT KILL ME PLEASE!")
@@ -52,9 +57,36 @@ async def stop(ctx):
    else:
      await ctx.send("Foolish mortal, you do not have permission to do that.")
 
+@bot.command(name="enlist", description="enlists a user into the server")
+async def enlist(ctx, receiever: discord.Member, role_type: str): 
+    # looks up both roles 
+    member = discord.utils.get(ctx.guild.roles, name="member") 
+    friends = discord.utils.get(ctx.guild.roles, name="Friends")
+    trusted = discord.utils.get(ctx.guild.roles, name="trusted")
+
+    if ctx.author.id == 429526435732914188 or ctx.author.id == 550259849896656907: # checks if its me or BBQ
+        if role_type == "friends" or "friend":
+            await receiever.add_roles(member)
+            await receiever.add_roles(friends)
+            await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+        elif role_type == "member" or "members":
+            await receiever.add_roles(member)
+            await ctx.send(f"Done, verified {receiever} to the server.")
+        elif role_type == "trusted":
+            await receiever.add_roles(member)
+            await receiever.add_roles(friends)
+            await receiever.add_roles(trusted)
+            await ctx.send(f"Done, entrusted {receiever}.")
+        else:
+            await ctx.send(f"I don't know what {role_type} means. Maybe you made a typo?")
+
+    else:
+        await ctx.send("You have no permission to do that!")
+        say(f"[red]{ctx.author} just tried to auto verify someone!")
+
 
 async def setup_hook(self):
     self.tree.copy_global_to(guild=MY_GUILD)
     await self.tree.sync()
 
-bot.run(token)
+bot.run(token, log_handler=handler, log_level=logging.DEBUG, root_logger=True)
