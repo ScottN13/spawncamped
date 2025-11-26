@@ -20,6 +20,10 @@ activity = discord.Activity(type=discord.ActivityType.listening, name="i was spa
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 MY_GUILD = discord.Object(id=1433854304678318183)
+scotty = 429526435732914188
+bbq = 550259849896656907
+
+
 
 @bot.event
 async def on_ready():
@@ -29,8 +33,11 @@ async def on_ready():
     say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
     await bot.change_presence(activity=activity, status=discord.Status.idle)
+    await bot.tree.sync()
 
-
+async def setup_hook(self):
+    await self.tree.sync()
+    say("[green]slash commands synced")
 
 @bot.command(name="ping", description="ping") 
 async def ping(ctx):
@@ -46,7 +53,7 @@ async def add(ctx, left: int, right: int):
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
-   if ctx.author.id == 429526435732914188:
+   if ctx.author.id == scotty:
         say(f"Shutdown command issued by {ctx.author}")
         await ctx.send("FUCK ALL OF YOU")
         time.sleep(1)
@@ -60,23 +67,37 @@ async def stop(ctx):
 @bot.command(name="enlist", description="enlists a user into the server")
 async def enlist(ctx, receiever: discord.Member, role_type: str): 
     # looks up both roles 
-    member = discord.utils.get(ctx.guild.roles, name="member") 
-    friends = discord.utils.get(ctx.guild.roles, name="Friends")
-    trusted = discord.utils.get(ctx.guild.roles, name="trusted")
+    member = discord.utils.get(ctx.guild.roles, id=1433856941163282637) 
+    friends = discord.utils.get(ctx.guild.roles, id=1433856406406303776)
+    trusted = discord.utils.get(ctx.guild.roles, id=1433854562875215972)
 
-    if ctx.author.id == 429526435732914188 or ctx.author.id == 550259849896656907: # checks if its me or BBQ
+    if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
         if role_type == "friends" or "friend":
-            await receiever.add_roles(member)
-            await receiever.add_roles(friends)
-            await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+            try: # Necessary as the logs won't say shit.
+                await receiever.add_roles(member)
+                await receiever.add_roles(friends)
+                await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+            except Exception as e:
+                await ctx.send(f"An error occurred: {e}")
+                say(f"[red]Error: {e}")
+
         elif role_type == "member" or "members":
-            await receiever.add_roles(member)
-            await ctx.send(f"Done, verified {receiever} to the server.")
+            try: 
+                await receiever.add_roles(member)
+                await ctx.send(f"Done, verified {receiever} to the server.")
+            except Exception as e:
+                await ctx.send(f"An error occurred: {e}")
+                say(f"[red]Error: {e}")
+                
         elif role_type == "trusted":
-            await receiever.add_roles(member)
-            await receiever.add_roles(friends)
-            await receiever.add_roles(trusted)
-            await ctx.send(f"Done, entrusted {receiever}.")
+            try:
+                await receiever.add_roles(member)
+                await receiever.add_roles(friends)
+                await receiever.add_roles(trusted)
+                await ctx.send(f"Done, entrusted {receiever}.")
+            except Exception as e:
+                await ctx.send(f"An error occurred: {e}")
+                say(f"[red]Error: {e}")
         else:
             await ctx.send(f"I don't know what {role_type} means. Maybe you made a typo?")
 
@@ -84,9 +105,18 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
         await ctx.send("You have no permission to do that!")
         say(f"[red]{ctx.author} just tried to auto verify someone!")
 
+@bot.command(name="pin", description="makes the bot pin a message to annoucements channel")
+async def pin(ctx, message_id: int):
+    channel = bot.get_channel(1433855475090198579) # Announcements channel ID
+    try:
+        say(f"Pin command called by {ctx.author} for message ID: {message_id}")
+        message = await ctx.channel.fetch_message(message_id)
+        await channel.send(content=f"Forwarded by {ctx.author}")
+        await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, name="announcements")  )
+    except Exception as e:
+        await ctx.send(f"An error occurred: {e}")
+        say(f"[red]Error: {e}")
 
-async def setup_hook(self):
-    self.tree.copy_global_to(guild=MY_GUILD)
-    await self.tree.sync()
+
 
 bot.run(token, log_handler=handler, log_level=logging.DEBUG, root_logger=True)
