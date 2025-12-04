@@ -16,8 +16,8 @@ ch.setLevel(logging.DEBUG)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do /help for help!", platform="raspberry pi 4", assets={"small_url": "assets/images/icon.png", "small_text": "rei ayanami chikita plush"})
-bot = commands.Bot(command_prefix='!', intents=intents)
+activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
+bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle)
 
 MY_GUILD = discord.Object(id=1433854304678318183)
 scotty = 429526435732914188
@@ -32,12 +32,15 @@ async def on_ready():
     say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
     say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
-    await bot.change_presence(activity=activity, status=discord.Status.idle)
-    await bot.tree.sync()
 
-async def setup_hook(self):
-    await self.tree.sync()
-    say("[green]slash commands synced")
+
+
+@bot.command(name="sync", description="syncs slash commands")
+async def sync(ctx):
+    synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
+    await bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
+    await ctx.send(f"{len(synced)} Slash commands synced.")
+    say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
 
 @bot.command(name="ping", description="ping") 
 async def ping(ctx):
@@ -119,4 +122,4 @@ async def pin(ctx, message_id: int):
 
 
 
-bot.run(token, log_handler=handler, log_level=logging.DEBUG, root_logger=True)
+bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
