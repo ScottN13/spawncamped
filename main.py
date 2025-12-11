@@ -17,7 +17,7 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
-bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle)
+bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle, help_command=None)
 
 MY_GUILD = discord.Object(id=1433854304678318183)
 scotty = 429526435732914188
@@ -33,12 +33,47 @@ async def on_ready():
     say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
 
+@bot.command(name="help", description="shows this message")
+async def help(ctx, type: str = None):
+    say(f"Help command called by [blue]{ctx.author} with type: {type}")
+    if type is None:
+        embed = discord.Embed(title="Help Menu", description="List of available commands:", color=0x00ff00)
+        embed.add_field(name="!sync", value="Syncs slash commands.", inline=False)
+        embed.add_field(name="!ping", value="Checks the bot's latency.", inline=False)
+        embed.add_field(name="!add <left> <right>", value="Adds two numbers together.", inline=False)
+        embed.add_field(name="!pin <message_id>", value="Pins a message to the announcements channel.", inline=False)
+        embed.set_footer(text="created by ScottyFM. ")
+        await ctx.send(embed=embed)
 
+    if type == "admin":
+        embed = discord.Embed(title="Admin Help Menu", description="List of admin commands:", color=0xff0000)
+        embed.add_field(name="!createrules <title> <description>", value="Creates the server rules embed.", inline=False)
+        embed.add_field(name="!enlist <user> <role_type>", value="Enlists a user into the server with specified role type (friends, member, trusted).", inline=False)
+        embed.add_field(name="!stop", value="Stops the bot (owner only).", inline=False)
+        embed.set_footer(text="created by ScottyFM. ")
+        await ctx.send(embed=embed)
+
+    elif type not in [None, "admin"]:
+        await ctx.send("you have a stroke? it's `!help`.")
+
+@bot.command(name="createrules", description="creates the server rules embed")
+async def createrules(ctx, title, *, description):
+    rules = bot.get_channel(1433865285097619546) # Rules channel ID
+    say(f"CreateRules command called by [blue]{ctx.author}")
+    embed = discord.Embed(title=title, description=description, color=0xff0000, timestamp=ctx.message.created_at)
+    embed.set_footer(text="By joining the server, you agree to these rules.")
+    try:
+        # await discord.TextChannel.send(id=rules, embed=embed) # Rules channel ID # this doesnt send it to the rules channel for some reason
+        await rules.send(embed=embed)
+        await ctx.send("Done, i created the rules embed.")
+    except Exception as e:
+        await ctx.send(f"i uhm: {e}")
+        say(f"[red]Error: {e}") 
 
 @bot.command(name="sync", description="syncs slash commands")
 async def sync(ctx):
+    bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
-    await bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     await ctx.send(f"{len(synced)} Slash commands synced.")
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
 
