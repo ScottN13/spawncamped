@@ -3,7 +3,7 @@
 source bot-env/bin/activate
 
 # Ask if they would like to update python3 before running the bot
-read -p "Would you like to update python3 before running the bot? (y/n): " update_python
+read -t 5 -p "Would you like to update python3 before running the bot? (y/n): " update_python
 if [[ "$update_python" != "y" && "$update_python" != "n" ]]; then
     echo "Invalid input. Please enter 'y' or 'n'."
     exit 1
@@ -34,4 +34,4 @@ echo ""
 echo "--------------------------------"
 echo ""
 
-python3 main.py
+nohup python3 main.py

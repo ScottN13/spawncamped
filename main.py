@@ -42,6 +42,7 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!ping", value="Checks the bot's latency.", inline=False)
         embed.add_field(name="!add <left> <right>", value="Adds two numbers together.", inline=False)
         embed.add_field(name="!pin <message_id>", value="Pins a message to the announcements channel.", inline=False)
+        embed.add_field(name="!source", value="Shows the bot source code link.", inline=False)
         embed.set_footer(text="created by ScottyFM. ")
         await ctx.send(embed=embed)
 
@@ -55,6 +56,12 @@ async def help(ctx, type: str = None):
 
     elif type not in [None, "admin"]:
         await ctx.send("you have a stroke? it's `!help`.")
+
+
+@bot.command(name="source", description="shows the bot source code link")
+async def source(ctx):
+    say(f"Source command called by [blue]{ctx.author}")
+    await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
 
 @bot.command(name="createrules", description="creates the server rules embed")
 async def createrules(ctx, title, *, description):
