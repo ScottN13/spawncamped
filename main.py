@@ -24,7 +24,6 @@ scotty = 429526435732914188
 bbq = 550259849896656907
 
 
-
 @bot.event
 async def on_ready():
     assert bot.user is not None
@@ -45,6 +44,8 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!source", value="Shows the bot source code link.", inline=False)
         embed.set_footer(text="created by ScottyFM. ")
         await ctx.send(embed=embed)
+        say(f"[green]Displayed general help menu to {ctx.author}")
+        logging.info(f"Displayed general help menu to {ctx.author}")
 
     if type == "admin":
         embed = discord.Embed(title="Admin Help Menu", description="List of admin commands:", color=0xff0000)
@@ -53,15 +54,20 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!stop", value="Stops the bot (owner only).", inline=False)
         embed.set_footer(text="created by ScottyFM. ")
         await ctx.send(embed=embed)
+        say(f"[green]Displayed admin help menu to {ctx.author}")
+        logging.info(f"Displayed admin help menu to {ctx.author}")
 
     elif type not in [None, "admin"]:
         await ctx.send("you have a stroke? it's `!help`.")
+        say(f"[red]{ctx.author} provided invalid help type: {type}")
+        logging.warning(f"{ctx.author} provided invalid help type: {type}")
 
 
 @bot.command(name="source", description="shows the bot source code link")
 async def source(ctx):
     say(f"Source command called by [blue]{ctx.author}")
     await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
+    logging.info(f"Provided source code link to {ctx.author}")
 
 @bot.command(name="createrules", description="creates the server rules embed")
 async def createrules(ctx, title, *, description):
@@ -73,28 +79,37 @@ async def createrules(ctx, title, *, description):
         # await discord.TextChannel.send(id=rules, embed=embed) # Rules channel ID # this doesnt send it to the rules channel for some reason
         await rules.send(embed=embed)
         await ctx.send("Done, i created the rules embed.")
+        logging.info(f"Created rules embed for {ctx.author} with contents: {title} - {description}")
     except Exception as e:
         await ctx.send(f"i uhm: {e}")
         say(f"[red]Error: {e}") 
+        logging.error(f"Error creating rules embed for {ctx.author}: {e}")
 
 @bot.command(name="sync", description="syncs slash commands")
 async def sync(ctx):
+    discord.app_commands.CommandTree(bot)
     bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
     await ctx.send(f"{len(synced)} Slash commands synced.")
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
+    logging.info(f"{len(synced)} slash commands synced by {ctx.author}")
 
 @bot.command(name="ping", description="ping") 
 async def ping(ctx):
     say(f"Ping command called by [blue]{ctx.author}")
     await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
+    logging.info(f"Ping command used by {ctx.author} with latency {bot.latency} ms")
 
 
+"""
 @bot.command(name='add')
 async def add(ctx, left: int, right: int):
-    """Adds two numbers together."""
+    # adds two numbers together
     say(f"Add command called by {ctx.author} with arguments: {left}, {right}")
     await ctx.send(left + right)
+    logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
+"""
+
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
@@ -105,9 +120,12 @@ async def stop(ctx):
         await ctx.send("DONT KILL ME PLEASE!")
         time.sleep(1)
         await ctx.send("*AA-*")
+        logging.info(f"stopped by {ctx.author}")
         await bot.close()
    else:
      await ctx.send("Foolish mortal, you do not have permission to do that.")
+     logging.info(f"{ctx.author} tried to stop bot")
+     say(f"{ctx.author} tried to stop bot")
 
 @bot.command(name="enlist", description="enlists a user into the server")
 async def enlist(ctx, receiever: discord.Member, role_type: str): 
@@ -122,17 +140,21 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
                 await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
+                logging.error(f"Error: {e}")
 
         elif role_type == "member" or "members":
             try: 
                 await receiever.add_roles(member)
                 await ctx.send(f"Done, verified {receiever} to the server.")
+                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
+                logging.error(f"Error: {e}")
                 
         elif role_type == "trusted":
             try:
@@ -140,15 +162,19 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 await receiever.add_roles(friends)
                 await receiever.add_roles(trusted)
                 await ctx.send(f"Done, entrusted {receiever}.")
+                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
+                logging.error(f"Error: {e}")
         else:
             await ctx.send(f"I don't know what {role_type} means. Maybe you made a typo?")
+            logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
     else:
         await ctx.send("You have no permission to do that!")
         say(f"[red]{ctx.author} just tried to auto verify someone!")
+        logging.warning(f"{ctx.author} tried to enlist {receiever} with role type: {role_type} without permission")
 
 @bot.command(name="pin", description="makes the bot pin a message to annoucements channel")
 async def pin(ctx, message_id: int):
@@ -157,11 +183,11 @@ async def pin(ctx, message_id: int):
         say(f"Pin command called by {ctx.author} for message ID: {message_id}")
         message = await ctx.channel.fetch_message(message_id)
         await channel.send(content=f"Forwarded by {ctx.author}")
-        await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, name="announcements")  )
+        await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, name="announcements"))
     except Exception as e:
         await ctx.send(f"An error occurred: {e}")
         say(f"[red]Error: {e}")
 
 
 
-bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
+bot.run(token, log_handler=handler, log_level=logging.ERROR, root_logger=True)
