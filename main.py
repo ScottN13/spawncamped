@@ -10,6 +10,7 @@ from discord.ext import commands
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
 
+reconnect = 0
 handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
 ch = logging.StreamHandler()
 ch.setLevel(logging.DEBUG)
@@ -27,6 +28,8 @@ bbq = 550259849896656907
 @bot.event
 async def on_ready():
     assert bot.user is not None
+    say("               ")
+    say("[green][bold]----------------------------")
     say(f'[green]logged in as {bot.user}')
     say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
     say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
@@ -136,11 +139,12 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
 
     if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
         if role_type == "friends" or "friend":
-            try: # Necessary as the logs won't say shit.
+            try: 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
                 await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
-                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
+                logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
+                say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
@@ -150,7 +154,8 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
             try: 
                 await receiever.add_roles(member)
                 await ctx.send(f"Done, verified {receiever} to the server.")
-                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
+                logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
+                say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
@@ -162,12 +167,14 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 await receiever.add_roles(friends)
                 await receiever.add_roles(trusted)
                 await ctx.send(f"Done, entrusted {receiever}.")
-                logging.info(f"{ctx.author} granted {role_type} to {receiever}")
+                logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
+                say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
                 await ctx.send(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
-        else:
+
+        elif role_type not in ["friends", "friend", "member", "members", "trusted"]:
             await ctx.send(f"I don't know what {role_type} means. Maybe you made a typo?")
             logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
@@ -187,7 +194,8 @@ async def pin(ctx, message_id: int):
     except Exception as e:
         await ctx.send(f"An error occurred: {e}")
         say(f"[red]Error: {e}")
+        logging.error(f"Error pinning message for {ctx.author} with id {message_id}: {e}")
 
 
 
-bot.run(token, log_handler=handler, log_level=logging.ERROR, root_logger=True)
+bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
