@@ -2,3 +2,4 @@ rich
 discord.py>=2.0.0
 python-dotenv
 logging
+discord

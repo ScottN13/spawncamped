@@ -35,6 +35,8 @@ async def on_ready():
     say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
 
+
+
 @bot.command(name="help", description="shows this message")
 async def help(ctx, type: str = None):
     say(f"Help command called by [blue]{ctx.author} with type: {type}")
@@ -42,7 +44,6 @@ async def help(ctx, type: str = None):
         embed = discord.Embed(title="Help Menu", description="List of available commands:", color=0x00ff00)
         embed.add_field(name="!sync", value="Syncs slash commands.", inline=False)
         embed.add_field(name="!ping", value="Checks the bot's latency.", inline=False)
-        embed.add_field(name="!add <left> <right>", value="Adds two numbers together.", inline=False)
         embed.add_field(name="!pin <message_id>", value="Pins a message to the announcements channel.", inline=False)
         embed.add_field(name="!source", value="Shows the bot source code link.", inline=False)
         embed.set_footer(text="created by ScottyFM. ")
@@ -136,9 +137,10 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
     member = discord.utils.get(ctx.guild.roles, id=1433856941163282637) 
     friends = discord.utils.get(ctx.guild.roles, id=1433856406406303776)
     trusted = discord.utils.get(ctx.guild.roles, id=1433854562875215972)
+    role_type = role_type.lower()
 
     if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
-        if role_type == "friends" or "friend":
+        if role_type in ["friends", "friend"]:
             try: 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
@@ -150,7 +152,7 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
-        elif role_type == "member" or "members":
+        elif role_type in ["member", "members"]:
             try: 
                 await receiever.add_roles(member)
                 await ctx.send(f"Done, verified {receiever} to the server.")
@@ -175,7 +177,7 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 logging.error(f"Error: {e}")
 
         elif role_type not in ["friends", "friend", "member", "members", "trusted"]:
-            await ctx.send(f"I don't know what {role_type} means. Maybe you made a typo?")
+            await ctx.send(f"I don't know what `{role_type}` means. Maybe you made a typo?")
             logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
     else:
@@ -190,7 +192,8 @@ async def pin(ctx, message_id: int):
         say(f"Pin command called by {ctx.author} for message ID: {message_id}")
         message = await ctx.channel.fetch_message(message_id)
         await channel.send(content=f"Forwarded by {ctx.author}")
-        await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, name="announcements"))
+        await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, id=channel.id))
+        logging.info(f"Pinned message for {ctx.author} with id {message_id}")
     except Exception as e:
         await ctx.send(f"An error occurred: {e}")
         say(f"[red]Error: {e}")
