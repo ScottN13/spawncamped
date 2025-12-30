@@ -58,13 +58,23 @@ def add_score(user_id, points): # modify a user's score
     user_id_str = str(user_id)
     
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_score': 0}
+        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0}
 
-    
     scores[user_id_str]['total_score'] += points
     scores[user_id_str]['last_daily_claimed'] = datetime.now().strftime('%Y-%m-%d')
     
     save_scores(scores) # make sure to always save after modifying
+    return points
+
+def add_debt(user_id, points): # modify a user's daily debt
+    scores = load_scores() # gets current scores
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0}
+
+    scores[user_id_str]['daily_debt'] += points
+    save_scores(scores)
     return points
 
 def check_score(user_id): # returns a user's score
@@ -73,6 +83,24 @@ def check_score(user_id): # returns a user's score
     
     if user_id_str in scores:
         return scores[user_id_str]['total_score']
+    else:
+        return None
+    
+def check_daily_loan(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str in scores:
+        return scores[user_id_str]['daily_debt']
+    else:
+        return None
+
+def check_debt(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str in scores:
+        return scores[user_id_str]['daily_debt']
     else:
         return None
 
@@ -114,6 +142,10 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!mc", value="Shows details of the Minecraft server (Currently Xander's).", inline=False)
         embed.add_field(name="!daily", value="Gives daily points. Used in gambling.", inline=False)
         embed.add_field(name="!leaderboard", value="Shows the total points leaderboard.", inline=False)
+        embed.add_field(name="!loan <amount>", value="Takes a loan of points (max 3000).", inline=False)
+        embed.add_field(name="!paydebt <amount>", value="Pays off debt.", inline=False)
+        embed.add_field(name="!donate <user> <amount>", value="Donates points to another user.", inline=False)
+        embed.add_field(name="!stats [user]", value="Shows your or another user's score stats.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
         await ctx.send(embed=embed)
         say(f"[green]Displayed social help menu to {ctx.author}")
@@ -122,7 +154,7 @@ async def help(ctx, type: str = None):
     if type == "gambling":
         embed = discord.Embed(title="Gambling Help Menu", description="List of gambling commands:", color=0xffff00)
         embed.add_field(name="!roll <sides>", value="Rolls a dice with specified number of sides (default 6).", inline=False)
-        embed.add_field(name="!flip <wager>", value="Flips a coin. Heads is win, tails is lose.", inline=False)
+        embed.add_field(name="!flip <wager> <side>", value="Flips a coin. Bet on which side you think it'lk land on and win.", inline=False)
         embed.add_field(name="!spin", value="Spins a roulette wheel. (NOT PROGRAMMED YET.)", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
         await ctx.send(embed=embed)
@@ -354,6 +386,114 @@ class leaderboard(commands.Cog): # i seperated these for organization
         logging.info(f"{ctx.author} viewed the leaderboard")
         say(f"[green]{ctx.author} viewed the leaderboard")
 
+    @commands.command(name="loan", description="takes a loan of points")
+    async def loan(self, ctx, amount: int):
+        if amount <= 0:
+            await ctx.send("Loan amount must be positive.")
+            logging.warning(f"{ctx.author} tried to take a loan with invalid amount: {amount}")
+            return
+        if amount > 3000:
+            await ctx.send("You can't scam me out of 3000 points.")
+            logging.warning(f"{ctx.author} tried to take a loan exceeding limit: {amount}")
+            return
+        
+        score = check_score(ctx.author.id)
+        debt = check_debt(ctx.author.id)
+
+        if debt is not None and debt + amount > score * 2 or debt == 0:
+            await ctx.send("You cannot take a loan that exceeds double your current score in debt. **Pay off!**")
+            logging.warning(f"{ctx.author} tried to take a loan exceeding debt limit: {amount}")
+            return 
+        else:
+            add_score(ctx.author.id, amount)
+            add_debt(ctx.author.id, amount)
+            embed = discord.Embed(title="Banker - Loans", description=f"You have taken a loan of {amount} points.", color=0x00ff00)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} took a loan of {amount} points")
+            return
+
+    @commands.command(name="paydebt", description="pays off debt")
+    async def paydebt(self, ctx, amount: int):
+        debt = check_debt(ctx.author.id)
+        score = check_score(ctx.author.id)
+
+        if debt is None or debt <= 0:
+            await ctx.send("You have no debt to pay off. :)")
+            logging.info(f"{ctx.author} tried to pay debt but has none")
+            return
+
+        if amount <= 0:
+            await ctx.send("tf you want me to do with 0 money")
+            logging.warning(f"{ctx.author} tried to pay debt with invalid amount: {amount}")
+            return
+
+        else:
+            add_score(ctx.author.id, -amount)
+            add_debt(ctx.author.id, -amount)
+            embed = discord.Embed(title="Banker - Debt Payment", description=f"You have paid off {amount} points of your debt.", color=0x00ff00)
+            ctx.send(embed=embed)
+            logging.info(f"{ctx.author} paid off {amount} points of their debt")
+            return
+
+    @commands.command(name="donate", description="donates points to another user")
+    async def donate(self, ctx, member: discord.Member, amount: int):
+        if amount <= 0:
+            await ctx.send("tf do they wanna do with NO points?")
+            logging.warning(f"{ctx.author} tried to donate invalid amount: {amount}")
+            return
+
+        score = check_score(ctx.author.id)
+        if score is None or score < amount:
+            await ctx.send("lol u poor. earn more points")
+            logging.warning(f"{ctx.author} tried to donate {amount} points with insufficient score")
+            return
+
+        else:
+            add_score(ctx.author.id, -amount)
+            add_score(member.id, amount)
+            embed = discord.Embed(title="You donated!", description=f"You have donated {amount} points to {member}.", color=0x00ff00)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="wow you're kind :)")
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} donated {amount} points to {member}")
+
+    @commands.command(name="stats", description="shows your score stats")
+    async def stats(self, ctx, member: discord.Member = None):
+
+        if member is None:
+            score = check_score(ctx.author.id)
+            debt = check_debt(ctx.author.id)
+
+            if score is None:
+                await ctx.send("You have no score yet. Use `!daily` to start earning points!")
+                logging.info(f"{ctx.author} checked stats with no score")
+                return
+
+            embed = discord.Embed(title=f"{ctx.author}'s Score Stats", color=0x0000ff)
+            embed.add_field(name="Total Score", value=f"{score} points", inline=False)
+            embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
+            embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
+
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} viewed their score stats")
+
+        else:
+            score = check_score(member.id)
+            debt = check_debt(member.id)
+
+            if score is None:
+                await ctx.send(f"{member} has no score yet.")
+                logging.info(f"{ctx.author} checked stats of {member} with no score")
+                return
+
+            embed = discord.Embed(title=f"{member}'s Score Stats", color=0x0000ff)
+            embed.add_field(name="Total Score", value=f"{score} points", inline=False)
+            embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
+            embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
+
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} viewed {member}'s score stats")
 
 class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
@@ -370,18 +510,32 @@ class Gambling(commands.Cog): # gambling commands
             await ctx.send("Dice cannot have more than 32 sides.")
             logging.warning(f"{ctx.author} tried to roll a dice with too many sides: {sides}")
             return
+        
         result = random.randint(1, sides)
-        bonus: int = random.randint(1,6)
-        scored = add_score(ctx.author.id, result + bonus) # dice side + bonus (a reroll kinda)
-        embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice.", color=0x00ff00)
-        embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
-        embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-        embed.set_footer(text=f"Calulated: {result} + {bonus} bonus points")
-        await ctx.send(embed=embed)
-        logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and earned {scored} points.")
+        bonus = random.randint(1, sides // 2)
+
+        if result <= sides / 2 or result == 1: # if the user rolls half the sides or 1, they lose points
+            lost = add_score(ctx.author.id, -result)
+            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost.", color=0xffff00)
+            embed.add_field(name="Points Lost", value=f"{lost}", inline=True)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="oof you suck lol")
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost {lost} points.")
+            return
+        
+        else:
+            scored = add_score(ctx.author.id, result + bonus) # dice side + bonus (a reroll kinda)
+            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice.", color=0x00ff00)
+            embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text=f"Calulated: {result} + {bonus} bonus points")
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and earned {scored} points.")
+            return
 
     @commands.command(name="flip", description="flips a coin. Heads is win, tails is lose")
-    async def flip(self, ctx, wager: int = 0):
+    async def flip(self, ctx , wager: int = 0, side: str = "heads"): 
         import random
         user_score = check_score(ctx.author.id)
         if user_score is None or user_score < wager: # check if user has enough points, would break the leaderboard otherwise
@@ -394,22 +548,43 @@ class Gambling(commands.Cog): # gambling commands
             logging.warning(f"{ctx.author} tried to flip a coin with invalid wager: {wager}")
             return
 
-        result = random.choice(["Heads", "Tails"])
-        bonus = random.randint(1,15)
-        scored = wager + bonus
-        if result == "Heads":
-            add_score(ctx.author.id, wager + bonus)
-            embed = discord.Embed(title="Coin Flip", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
-            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
-            await ctx.send(embed=embed)
+        if side.lower() in ["heads"]: # defaults to heads
+            result = random.choice(["Heads", "Tails"])
+            bonus = random.randint(1,15)
+            scored = wager + bonus
+            if result == "Heads":
+                add_score(ctx.author.id, wager + bonus)
+                embed = discord.Embed(title="Coin Flip - Heads", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
+                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                await ctx.send(embed=embed)
+            else:
+                add_score(ctx.author.id, -wager)
+                embed_fail = discord.Embed(title="Coin Flip - Heads", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
+                embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed_fail.set_footer(text="oof you suck lol")
+                await ctx.send(embed=embed_fail)
+            logging.info(f"{ctx.author} flipped a coin and got {result}.")
+
         else:
-            add_score(ctx.author.id, -wager)
-            embed_fail = discord.Embed(title="Coin Flip", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
-            embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed_fail.set_footer(text="oof you suck lol")
-            await ctx.send(embed=embed_fail)
-        logging.info(f"{ctx.author} flipped a coin and got {result}.")
+            result = random.choice(["Heads", "Tails"])
+            bonus = random.randint(1,15)
+            scored = wager + bonus
+            if result == "Tails":
+                add_score(ctx.author.id, wager + bonus)
+                embed = discord.Embed(title="Coin Flip - Tails", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
+                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                await ctx.send(embed=embed)
+                return
+            else:
+                add_score(ctx.author.id, -wager)
+                embed_fail = discord.Embed(title="Coin Flip - Tails", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
+                embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed_fail.set_footer(text="oof you suck lol")
+                await ctx.send(embed=embed_fail)
+                logging.info(f"{ctx.author} flipped a coin and got {result}.")
+                return
 
     """
     @commands.command(name="spin", description="spins a roulette wheel")
