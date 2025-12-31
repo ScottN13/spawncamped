@@ -270,10 +270,18 @@ async def add(ctx, left: int, right: int):
     logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
 """
 
+@bot.command(name="!stopgamble")
+async def stopgamble(ctx):
+    if ctx.author.id == scotty or bbq:
+        say(f"StopGamble command called by [blue]{ctx.author}")
+        bot.remove_cog("Gambling")
+        await ctx.send("no more gambling")
+        logging.info(f"Gambling disabled by {ctx.author} for maintenance")
+
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
-   if ctx.author.id == scotty:
+   if ctx.author.id == scotty or bbq:
         say(f"Shutdown command issued by {ctx.author}")
         await ctx.send("FUCK ALL OF YOU")
         time.sleep(1)
