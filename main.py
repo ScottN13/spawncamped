@@ -71,11 +71,22 @@ def add_debt(user_id, points): # modify a user's daily debt
     user_id_str = str(user_id)
 
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0}
+        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
 
     scores[user_id_str]['daily_debt'] += points
     save_scores(scores)
     return points
+
+def add_bonus_multiplier(user_id, multiplier): # modify a user's bonus multiplier
+    scores = load_scores() # gets current scores
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+
+    scores[user_id_str]['bonus_multiplier'] = multiplier
+    save_scores(scores)
+    return multiplier
 
 def check_score(user_id): # returns a user's score
     scores = load_scores()
@@ -104,10 +115,28 @@ def check_debt(user_id):
     else:
         return None
 
+def check_bonus_multiplier(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+
+    if user_id_str in scores:
+        return scores[user_id_str].get('bonus_multiplier', 1)
+    else:
+        return 1
+
+
 def get_leaderboard(limit=10): # returns top 10 users by score
     scores = load_scores()
     sorted_users = sorted(scores.items(), key=lambda x: x[1]['total_score'], reverse=True)
     return sorted_users[:limit]
+
+def calc_bonus(user_id, limit, multiplier):
+    multiplier = check_bonus_multiplier(user_id=user_id)
+    limit_calc = random.randint(1, limit)
+    return limit_calc, multiplier
 
 ################
 
@@ -146,6 +175,7 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!paydebt <amount>", value="Pays off debt.", inline=False)
         embed.add_field(name="!donate <user> <amount>", value="Donates points to another user.", inline=False)
         embed.add_field(name="!stats [user]", value="Shows your or another user's score stats.", inline=False)
+        embed.add_field(name="!shop", value="Brings up the multiplier shop.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
         await ctx.send(embed=embed)
         say(f"[green]Displayed social help menu to {ctx.author}")
@@ -155,7 +185,7 @@ async def help(ctx, type: str = None):
         embed = discord.Embed(title="Gambling Help Menu", description="List of gambling commands:", color=0xffff00)
         embed.add_field(name="!roll <sides>", value="Rolls a dice with specified number of sides (default 6).", inline=False)
         embed.add_field(name="!flip <wager> <side>", value="Flips a coin. Bet on which side you think it'lk land on and win.", inline=False)
-        embed.add_field(name="!spin", value="Spins a roulette wheel. (NOT PROGRAMMED YET.)", inline=False)
+        embed.add_field(name="!spin <wager> <color>", value="Spins a roulette wheel. Bet on either red or black.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
         await ctx.send(embed=embed)
         say(f"[green]Displayed gambling help menu to {ctx.author}")
@@ -325,6 +355,61 @@ async def pin(ctx, message_id: int):
         say(f"[red]Error: {e}")
         logging.error(f"Error pinning message for {ctx.author} with id {message_id}: {e}")
 
+class ShopView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+    
+    @discord.ui.button(label="Buy 1.1x (100)", style=discord.ButtonStyle.green, custom_id="buy_1.1")
+    async def buy_1_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        
+        if user_score is None or user_score < 100:
+            await interaction.response.send_message("You don't have enough points (need 100).", ephemeral=True)
+            logging.warning(f"{interaction.user} tried to buy 1.1x multiplier with insufficient points")
+            return
+        
+        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.1x mult!", color=0xffff00)
+
+        add_score(user_id, -100)
+        add_bonus_multiplier(user_id, 1.1)
+        await interaction.response.edit_message(embed=embed, view=None)
+        logging.info(f"{interaction.user} purchased 1.1x multiplier")
+    
+    @discord.ui.button(label="Buy 1.25x (300)", style=discord.ButtonStyle.green, custom_id="buy_1.25")
+    async def buy_1_25(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        
+        if user_score is None or user_score < 300:
+            await interaction.response.send_message("You don't have enough points (need 300).", ephemeral=True)
+            logging.warning(f"{interaction.user} tried to buy 1.25x multiplier with insufficient points")
+            return
+        
+        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.25x mult!", color=0xffff00)
+
+        add_score(user_id, -300)
+        add_bonus_multiplier(user_id, 1.25)
+        await interaction.response.edit_message(embed=embed, view=None)
+        logging.info(f"{interaction.user} purchased 1.25x multiplier")
+    
+    @discord.ui.button(label="Buy 1.5x (500)", style=discord.ButtonStyle.green, custom_id="buy_1.5")
+    async def buy_1_5(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        
+        if user_score is None or user_score < 500:
+            await interaction.response.send_message("You don't have enough points (need 500).", ephemeral=True)
+            logging.warning(f"{interaction.user} tried to buy 1.5x multiplier with insufficient points")
+            return
+        
+        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.5x mult!", color=0xffff00)
+        
+        add_score(user_id, -500)
+        add_bonus_multiplier(user_id, 1.5)
+        await interaction.response.edit_message(embed=embed, view=None)
+        logging.info(f"{interaction.user} purchased 1.5x multiplier")
+
 class Social(commands.Cog): # Social stuff for servers 
     def __init__(self, bot):
         self.bot = bot
@@ -349,16 +434,19 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.info(f"{ctx.author} tried to claim daily reward twice in one day")
             return
         
-        points = random.randint(10, 100)
-        add_score(ctx.author.id, points)
+        limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
+
+        points = 100
+        bonus = int(limit_calc * multiplier)
+        add_score(ctx.author.id, points + bonus)
         
         scores = load_scores()
         total = scores[str(ctx.author.id)]['total_score']
         
         embed = discord.Embed(title="Daily Reward Claimed!", color=0x00ff00)
-        embed.add_field(name="Points Earned", value=f"+{points}", inline=True)
+        embed.add_field(name="Points Earned", value=f"+{points+bonus} (100 + {bonus})", inline=True)
         embed.add_field(name="Total Score", value=total, inline=True)
-        embed.set_footer(text="Come back tomorrow for more points!")
+        embed.set_footer(text="come back tomorrow for more!")
         
         await ctx.send(embed=embed)
         logging.info(f"{ctx.author} claimed daily reward: {points} points")
@@ -397,10 +485,14 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.warning(f"{ctx.author} tried to take a loan exceeding limit: {amount}")
             return
         
+        # amount is how much you want to loan
+        # score is user's current score
+        # debt is user's current debt
+
         score = check_score(ctx.author.id)
         debt = check_debt(ctx.author.id)
 
-        if debt is not None and debt + amount > score * 2 or debt == 0:
+        if debt is not None and debt > score * 2:
             await ctx.send("You cannot take a loan that exceeds double your current score in debt. **Pay off!**")
             logging.warning(f"{ctx.author} tried to take a loan exceeding debt limit: {amount}")
             return 
@@ -409,6 +501,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             add_debt(ctx.author.id, amount)
             embed = discord.Embed(title="Banker - Loans", description=f"You have taken a loan of {amount} points.", color=0x00ff00)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.add_field(name="Your total debt:", value=f"{check_debt(ctx.author.id)}", inline=True)
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} took a loan of {amount} points")
             return
@@ -417,6 +510,9 @@ class leaderboard(commands.Cog): # i seperated these for organization
     async def paydebt(self, ctx, amount: int):
         debt = check_debt(ctx.author.id)
         score = check_score(ctx.author.id)
+
+        if amount is None:
+            amount = debt
 
         if debt is None or debt <= 0:
             await ctx.send("You have no debt to pay off. :)")
@@ -428,11 +524,20 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.warning(f"{ctx.author} tried to pay debt with invalid amount: {amount}")
             return
 
+        if amount is None:
+            debt = check_debt(ctx.author.id)
+            add_score(ctx.author.id, -debt)
+            add_debt(ctx.author.id, -debt)
+            embed = discord.Embed(title="Banker - Debt Payment", description=f"You have paid off all of your debt ({debt} points).", color=0x00ff00)
+            await ctx.send(embed=embed)
+            logging.info(f"{ctx.author} paid off all of their debt: {debt} points")
+            return
+
         else:
             add_score(ctx.author.id, -amount)
             add_debt(ctx.author.id, -amount)
             embed = discord.Embed(title="Banker - Debt Payment", description=f"You have paid off {amount} points of your debt.", color=0x00ff00)
-            ctx.send(embed=embed)
+            await ctx.send(embed=embed)
             logging.info(f"{ctx.author} paid off {amount} points of their debt")
             return
 
@@ -473,6 +578,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             embed = discord.Embed(title=f"{ctx.author}'s Score Stats", color=0x0000ff)
             embed.add_field(name="Total Score", value=f"{score} points", inline=False)
             embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
+            embed.add_field(name="Bonus Multiplier", value=f"{check_bonus_multiplier(ctx.author.id)}x", inline=False)
             embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
 
             await ctx.send(embed=embed)
@@ -490,10 +596,22 @@ class leaderboard(commands.Cog): # i seperated these for organization
             embed = discord.Embed(title=f"{member}'s Score Stats", color=0x0000ff)
             embed.add_field(name="Total Score", value=f"{score} points", inline=False)
             embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
+            embed.add_field(name="Bonus Multiplier", value=f"{check_bonus_multiplier(member.id)}x", inline=False)
             embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
 
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} viewed {member}'s score stats")
+
+    @commands.command(name="shop", description="shows the multiplier shop")
+    async def shop(self, ctx):
+        embed = discord.Embed(title="Multiplier Shop", description="Buy bonus multipliers to increase your earnings!", color=0xffff00)
+        embed.add_field(name="1.1x Multiplier", value="Cost: 100 points\nIncreases all earnings by 10%.", inline=False)
+        embed.add_field(name="1.25x Multiplier", value="Cost: 300 points\nIncreases all earnings by 25%.", inline=False)
+        embed.add_field(name="1.5x Multiplier", value="Cost: 500 points\nIncreases all earnings by 50%.", inline=False)
+        
+        view = ShopView()
+        await ctx.send(embed=embed, view=view)
+        logging.info(f"{ctx.author} viewed the multiplier shop")
 
 class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
@@ -502,6 +620,13 @@ class Gambling(commands.Cog): # gambling commands
     @commands.command(name="roll", description="rolls a dice")
     async def roll(self, ctx, sides: int = 6): # default to 6 sided dice
         import random
+        
+        user_score = check_score(ctx.author.id)
+        if user_score is None or user_score <= 0: # check if user has any points
+            await ctx.send("You don't have any points yet.")
+            logging.warning(f"{ctx.author} tried to roll dice with no score")
+            return
+
         if sides < 2:
             await ctx.send("Dice must have at least 2 sides.")
             logging.warning(f"{ctx.author} tried to roll a dice with invalid sides: {sides}")
@@ -511,8 +636,10 @@ class Gambling(commands.Cog): # gambling commands
             logging.warning(f"{ctx.author} tried to roll a dice with too many sides: {sides}")
             return
         
+        limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=sides//2, multiplier=check_bonus_multiplier(ctx.author.id))
+
         result = random.randint(1, sides)
-        bonus = random.randint(1, sides // 2)
+        bonus = int(limit_calc * multiplier)
 
         if result <= sides / 2 or result == 1: # if the user rolls half the sides or 1, they lose points
             lost = add_score(ctx.author.id, -result)
@@ -529,7 +656,7 @@ class Gambling(commands.Cog): # gambling commands
             embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice.", color=0x00ff00)
             embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed.set_footer(text=f"Calulated: {result} + {bonus} bonus points")
+            embed.set_footer(text=f"Calulated: {result} + ({limit_calc} x {multiplier}x) bonus points")
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and earned {scored} points.")
             return
@@ -550,13 +677,15 @@ class Gambling(commands.Cog): # gambling commands
 
         if side.lower() in ["heads"]: # defaults to heads
             result = random.choice(["Heads", "Tails"])
-            bonus = random.randint(1,15)
+
+            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
+            bonus = int(limit_calc * multiplier)
             scored = wager + bonus
             if result == "Heads":
                 add_score(ctx.author.id, wager + bonus)
                 embed = discord.Embed(title="Coin Flip - Heads", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + ({limit_calc} x {multiplier}) bonus points")
                 await ctx.send(embed=embed)
             else:
                 add_score(ctx.author.id, -wager)
@@ -568,13 +697,14 @@ class Gambling(commands.Cog): # gambling commands
 
         else:
             result = random.choice(["Heads", "Tails"])
-            bonus = random.randint(1,15)
+            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
+            bonus = int(limit_calc * multiplier)
             scored = wager + bonus
             if result == "Tails":
                 add_score(ctx.author.id, wager + bonus)
                 embed = discord.Embed(title="Coin Flip - Tails", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + ({limit_calc} x {multiplier}x) bonus points")
                 await ctx.send(embed=embed)
                 return
             else:
@@ -586,14 +716,64 @@ class Gambling(commands.Cog): # gambling commands
                 logging.info(f"{ctx.author} flipped a coin and got {result}.")
                 return
 
-    """
+
     @commands.command(name="spin", description="spins a roulette wheel")
-    async def spin(self, ctx):
-        import random
+    async def spin(self, ctx, wager: int = 0, color: str = "red"):
+        user_score = check_score(ctx.author.id)
+            
+        if user_score is None or user_score < wager:
+            await ctx.send("You don't have enough points to make that wager.")
+            logging.warning(f"{ctx.author} tried to spin with insufficient points for wager: {wager}")
+            return
+            
+        if wager <= 0:
+            await ctx.send("Please wager some points.")
+            logging.warning(f"{ctx.author} tried to spin with invalid wager: {wager}")
+            return
+            
+        color = color.lower()
+        if color not in ["red", "black"]:
+            await ctx.send("Invalid color. Choose 'red' or 'black'.")
+            logging.warning(f"{ctx.author} tried to spin with invalid color: {color}")
+            return
+            
+        # Roulette wheel: 0-36
+        # Red: 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35
+        # Black: 2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36
+        # 0: House wins
+        red_numbers = [1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35]
+        black_numbers = [2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36]
+            
         result = random.randint(0, 36)
-        colors = "Red" if result % 2 == 0 and result != 0 else "Black" if result % 2 == 1 else "Green"
-        embed = discord.Embed(title="Roulette Spin", description=f"The ball landed on {result} ({colors})", color=0x00ff00)
-        await ctx.send(embed=embed)
-    """
+            
+        if result == 0:  # House wins
+            add_score(ctx.author.id, -wager)
+            embed = discord.Embed(title="Roulette Spin - 0 (House)", description=f"{ctx.author} landed on 0 and lost!", color=0xff0000)
+            embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="The house always wins")
+            await ctx.send(embed=embed)
+        else:
+            result_color = "red" if result in red_numbers else "black"
+            if result_color == color:  # Player wins
+                limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=100, multiplier=check_bonus_multiplier(ctx.author.id))
+                bonus = int(limit_calc * multiplier)
+                scored = wager + bonus
+                add_score(ctx.author.id, scored)
+                embed = discord.Embed(title=f"Roulette Spin - {result} ({result_color.capitalize()})", description=f"{ctx.author} bet on {color} and won!", color=0x00ff00)
+                embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
+                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                await ctx.send(embed=embed)
+            else:  # Player loses
+                add_score(ctx.author.id, -wager)
+                embed = discord.Embed(title=f"Roulette Spin - {result} ({result_color.capitalize()})", description=f"{ctx.author} bet on {color} and lost!", color=0xff0000)
+                embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
+                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                embed.set_footer(text="Better luck next time")
+                await ctx.send(embed=embed)
+            
+            logging.info(f"{ctx.author} spun roulette and landed on {result}")
+            say(f"[green]{ctx.author} spun roulette and landed on {result}")
 
 bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
