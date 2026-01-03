@@ -3,7 +3,7 @@ import discord
 import os
 import logging
 import time
-from rich import print as say
+
 from dotenv import load_dotenv
 from discord.ext import commands
 import json
@@ -11,6 +11,9 @@ from datetime import datetime
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
+guildId = int(os.getenv('guildId'))
+scotty = int(os.getenv('scotty'))
+bbq = int(os.getenv('bbq'))
 
 reconnect = 0
 handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
@@ -22,10 +25,22 @@ intents.members = True
 activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
 bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle, help_command=None)
 
-MY_GUILD = discord.Object(id=1433854304678318183)
-scotty = 429526435732914188
-bbq = 550259849896656907
+MY_GUILD = discord.Object(id=guildId)
 SCORES_FILE = 'scores.json'
+
+def say(message):
+    from rich import print
+    print(f"[blue]BOT:[/blue] {message}")
+
+# external helper functions
+async def shutdownBot():
+    await bot.close()
+    return True
+
+async def isBotOnline():
+    online = bot.is_ready() and not bot.is_closed()
+    return {"online": online}
+
 
 # functions for score management
 def load_scores(): # fetches scores from scores.json
@@ -52,6 +67,19 @@ def can_claim_daily(user_id): # function to check if user can claim daily points
     last_claimed = scores[user_id_str].get('last_daily_claimed')
     
     return last_claimed != today
+
+def scoreCheck(user_id): # checks if user exists in scores.json
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    try:
+        if user_id_str not in scores:
+            scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+            return    
+    except KeyError:
+        logging.error(f"KeyError: User ID {user_id_str} not found in scores.")
+        return False
+
 
 def add_score(user_id, points): # modify a user's score
     scores = load_scores() # gets current scores
@@ -106,6 +134,22 @@ def check_daily_loan(user_id):
     else:
         return None
 
+def check_hasDailyYet(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str in scores:
+        last_claimed = scores[user_id_str].get('last_daily_claimed')
+        today = datetime.now().strftime('%Y-%m-%d')
+        if last_claimed == today:
+            return False # has already claimed today
+        else: # has not claimed today
+            embed = discord.Embed(title="Daily Reminder", description="You have not claimed your daily points yet! Use `!daily` to claim them.", color=0xffff00)
+            return embed
+    else:
+        return Exception("User not found in `scores.json`")
+    
+
 def check_debt(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
@@ -143,14 +187,27 @@ def calc_bonus(user_id, limit, multiplier):
 @bot.event
 async def on_ready():
     assert bot.user is not None
+    import shared
+    shared.bot_online = True
     say("               ")
     say("[green][bold]----------------------------")
     say(f'[green]logged in as {bot.user}')
-    say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
-    say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
 
-
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown): # Command cooldown (ratelimits)
+            embed = discord.Embed(
+                title="Command on Cooldown",
+                description=f"This command is on cooldown. Try again in {error.retry_after:.1f} seconds.",
+                color=0xff0000
+            )
+    else: # Other errors, bugs, etc.
+        embed = discord.Embed(title="Error", description="An error occurred while processing the command.", color=0xff0000)
+        embed.add_field(name="Details", value=str(error), inline=False)
+        embed.set_footer(text="ping scotty for this")
+        say(f"[red]Error: {error}")
+        logging.error(f"Error processing command from {ctx.author}: {error}")
 
 @bot.command(name="help", description="shows this message")
 async def help(ctx, type: str = None):
@@ -223,7 +280,7 @@ async def about(ctx):
 @bot.command(name="source", description="shows the bot source code link")
 async def source(ctx):
     say(f"Source command called by [blue]{ctx.author}")
-    await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
+    await ctx.reply("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
     logging.info(f"Provided source code link to {ctx.author}")
 
 @bot.command(name="createrules", description="creates the server rules embed")
@@ -235,10 +292,10 @@ async def createrules(ctx, title, *, description):
     try:
         # await discord.TextChannel.send(id=rules, embed=embed) # Rules channel ID # this doesnt send it to the rules channel for some reason
         await rules.send(embed=embed)
-        await ctx.send("Done, i created the rules embed.")
+        await ctx.reply("Done, i created the rules embed.")
         logging.info(f"Created rules embed for {ctx.author} with contents: {title} - {description}")
     except Exception as e:
-        await ctx.send(f"i uhm: {e}")
+        await ctx.reply(f"i uhm: {e}")
         say(f"[red]Error: {e}") 
         logging.error(f"Error creating rules embed for {ctx.author}: {e}")
 
@@ -247,17 +304,17 @@ async def sync(ctx):
 
     bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
-    await ctx.send(f"{len(synced)} Slash commands synced.")
     await bot.add_cog(Social(bot))
     await bot.add_cog(leaderboard(bot))
     await bot.add_cog(Gambling(bot))
+    await ctx.reply(f"{len(synced)} Slash commands synced. Enabled cogs.")   
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
     logging.info(f"{len(synced)} slash commands synced by {ctx.author}")
 
 @bot.command(name="ping", description="ping") 
 async def ping(ctx):
     say(f"Ping command called by [blue]{ctx.author}")
-    await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
+    await ctx.reply(f"`Pong! Latency is {bot.latency} ms`")
     logging.info(f"Ping command used by {ctx.author} with latency {bot.latency} ms")
 
 
@@ -270,28 +327,16 @@ async def add(ctx, left: int, right: int):
     logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
 """
 
-@bot.command(name="!stopgamble")
-async def stopgamble(ctx):
-    if ctx.author.id == scotty or bbq:
-        say(f"StopGamble command called by [blue]{ctx.author}")
-        bot.remove_cog("Gambling")
-        await ctx.send("no more gambling")
-        logging.info(f"Gambling disabled by {ctx.author} for maintenance")
-
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
    if ctx.author.id == scotty or bbq:
         say(f"Shutdown command issued by {ctx.author}")
-        await ctx.send("FUCK ALL OF YOU")
-        time.sleep(1)
-        await ctx.send("DONT KILL ME PLEASE!")
-        time.sleep(1)
-        await ctx.send("*AA-*")
+        await ctx.reply("*ok*")
         logging.info(f"stopped by {ctx.author}")
         await bot.close()
    else:
-     await ctx.send("Foolish mortal, you do not have permission to do that.")
+     await ctx.reply("no.")
      logging.info(f"{ctx.author} tried to stop bot")
      say(f"{ctx.author} tried to stop bot")
 
@@ -308,22 +353,22 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
             try: 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
-                await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+                await ctx.reply(f"Done, verified {receiever} to the server (friend privileges).")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type in ["member", "members"]:
             try: 
                 await receiever.add_roles(member)
-                await ctx.send(f"Done, verified {receiever} to the server.")
+                await ctx.reply(f"Done, verified {receiever} to the server.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
                 
@@ -332,20 +377,20 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
                 await receiever.add_roles(trusted)
-                await ctx.send(f"Done, entrusted {receiever}.")
+                await ctx.reply(f"Done, entrusted {receiever}.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type not in ["friends", "friend", "member", "members", "trusted"]:
-            await ctx.send(f"I don't know what `{role_type}` means. Maybe you made a typo?")
+            await ctx.reply(f"I don't know what `{role_type}` means. Maybe you made a typo?")
             logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
     else:
-        await ctx.send("You have no permission to do that!")
+        await ctx.reply("You have no permission to do that!")
         say(f"[red]{ctx.author} just tried to auto verify someone!")
         logging.warning(f"{ctx.author} tried to enlist {receiever} with role type: {role_type} without permission")
 
@@ -359,7 +404,7 @@ async def pin(ctx, message_id: int):
         await discord.Message.forward(message, destination=discord.utils.get(ctx.guild.channels, id=channel.id))
         logging.info(f"Pinned message for {ctx.author} with id {message_id}")
     except Exception as e:
-        await ctx.send(f"An error occurred: {e}")
+        await ctx.reply(f"An error occurred: {e}")
         say(f"[red]Error: {e}")
         logging.error(f"Error pinning message for {ctx.author} with id {message_id}: {e}")
 
@@ -428,7 +473,7 @@ class Social(commands.Cog): # Social stuff for servers
         embed.add_field(name="Server IP", value="none yet", inline=False)
         embed.add_field(name="Version", value="Java 1.20.1 - Forge 47.4.9", inline=False)
         embed.add_field(name="Modpack link:", value="[click here](https://drive.google.com/drive/folders/1QC7TeQf4ISNDqhdWa06QLQbj7MVGeqCE)", inline=False)
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
 
 class leaderboard(commands.Cog): # i seperated these for organization
     def __init__(self, bot):
@@ -438,7 +483,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
     @commands.command(name="daily", description="gives daily points")
     async def daily(self, ctx):
         if not can_claim_daily(ctx.author.id):
-            await ctx.send(f"You already claimed your daily points.")
+            await ctx.reply(f"You already claimed your daily points.")
             logging.info(f"{ctx.author} tried to claim daily reward twice in one day")
             return
         
@@ -456,7 +501,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         embed.add_field(name="Total Score", value=total, inline=True)
         embed.set_footer(text="come back tomorrow for more!")
         
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         logging.info(f"{ctx.author} claimed daily reward: {points} points")
         say(f"[green]{ctx.author} claimed daily reward: +{points} points")
 
@@ -523,12 +568,12 @@ class leaderboard(commands.Cog): # i seperated these for organization
             amount = debt
 
         if debt is None or debt <= 0:
-            await ctx.send("You have no debt to pay off. :)")
+            await ctx.reply("You have no debt to pay off. :)")
             logging.info(f"{ctx.author} tried to pay debt but has none")
             return
 
         if amount <= 0:
-            await ctx.send("tf you want me to do with 0 money")
+            await ctx.reply("tf you want me to do with 0 money")
             logging.warning(f"{ctx.author} tried to pay debt with invalid amount: {amount}")
             return
 
@@ -537,7 +582,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             add_score(ctx.author.id, -debt)
             add_debt(ctx.author.id, -debt)
             embed = discord.Embed(title="Banker - Debt Payment", description=f"You have paid off all of your debt ({debt} points).", color=0x00ff00)
-            await ctx.send(embed=embed)
+            await ctx.reply(embed=embed)
             logging.info(f"{ctx.author} paid off all of their debt: {debt} points")
             return
 
@@ -545,7 +590,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             add_score(ctx.author.id, -amount)
             add_debt(ctx.author.id, -amount)
             embed = discord.Embed(title="Banker - Debt Payment", description=f"You have paid off {amount} points of your debt.", color=0x00ff00)
-            await ctx.send(embed=embed)
+            await ctx.reply(embed=embed)
             logging.info(f"{ctx.author} paid off {amount} points of their debt")
             return
 
@@ -618,12 +663,14 @@ class leaderboard(commands.Cog): # i seperated these for organization
         embed.add_field(name="1.5x Multiplier", value="Cost: 500 points\nIncreases all earnings by 50%.", inline=False)
         
         view = ShopView()
-        await ctx.send(embed=embed, view=view)
+        await ctx.send(embed=embed, view=view, ephemeral=True)
         logging.info(f"{ctx.author} viewed the multiplier shop")
 
 class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
         self.bot = bot
+        for command in self.get_commands():
+            command.add_check(commands.cooldown(1, 5, commands.BucketType.user))
 
     @commands.command(name="roll", description="rolls a dice")
     async def roll(self, ctx, sides: int = 6): # default to 6 sided dice
@@ -784,4 +831,7 @@ class Gambling(commands.Cog): # gambling commands
             logging.info(f"{ctx.author} spun roulette and landed on {result}")
             say(f"[green]{ctx.author} spun roulette and landed on {result}")
 
-bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
+if __name__ == "__main__":
+    import shared
+    shared.bot_online = True
+    bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)

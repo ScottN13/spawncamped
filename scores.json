@@ -1,1 +1,30 @@
-{}
+{
+  "429526435732914188": {
+    "total_score": 48137,
+    "daily_debt": 4,
+    "daily_score": 0,
+    "last_daily_claimed": "2026-01-02",
+    "bonus_multiplier": 1.5
+  },
+  "670703737265848399": {
+    "total_score": 1480,
+    "daily_debt": 0,
+    "daily_score": 0,
+    "last_daily_claimed": "2025-12-30",
+    "bonus_multiplier": 1
+  },
+  "963491431253676172": {
+    "total_score": 81,
+    "daily_debt": 0,
+    "daily_score": 0,
+    "last_daily_claimed": "2025-12-30",
+    "bonus_multiplier": 1
+  },
+  "550259849896656907": {
+    "total_score": 9141,
+    "daily_debt": 0,
+    "daily_score": 0,
+    "last_daily_claimed": "2025-12-31",
+    "bonus_multiplier": 1.5
+  }
+}
