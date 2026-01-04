@@ -1,6 +1,7 @@
 import os
 import logging
 from datetime import datetime
+import time
 import json
 from rich import print as say
 from fastapi import FastAPI
@@ -17,6 +18,30 @@ from main import shutdownBot, isBotOnline
 router = APIRouter()
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
+logger = logging.getLogger("app.requests")
+handler = logging.FileHandler(filename='logs/webpanel.log', encoding='utf-8', mode='w')
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.time()
+
+    response = await call_next(request)
+
+    duration = time.time() - start
+    client_ip = request.client.host if request.client else "unknown"
+
+    logger.info(
+        "%s %s %s %d %.2fms",
+        client_ip,
+        request.method,
+        request.url.path,
+        request.scope["http_version"],
+        response.status_code,
+        duration * 1000,
+    )
+
+    return response
+
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -36,6 +61,7 @@ async def home(request: Request):
         html = html.replace("{{MESSAGE}}", "")
 
     return html
+    
 
 @app.get("/api/status")
 async def api_status():
@@ -65,10 +91,12 @@ async def getPanelLogs():
 
 @app.get("/shutdown_bot")
 async def shutdown_bot():
-    if shared.bot_online:
-        await shutdownBot()
-        shared.bot_online = False
-    return RedirectResponse("/")
+    status = await shutdownBot()
+    if status == True:
+        message = "Successfully shut down bot."
+        return RedirectResponse(f"/?msg={message}")
+    else: 
+        return RedirectResponse("/")
 
 @app.get("/start_bot")
 async def start():

@@ -22,10 +22,11 @@ Whenever you want to update the bot, remember to active the bot's virtual enviro
 
 Then go ahead and install all dependencies using `pip install -r requirements.txt`
 
-Now you should create these 3 things: (if not already existing.)
+Now you should create these 4 things: (if not already existing.)
 - scores.json
 - logs/discord.log
 - logs/webpanel.log
+- .env
 
 Skipping these will make the bot **not** work properly.
 

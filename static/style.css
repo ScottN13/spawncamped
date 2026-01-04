@@ -28,15 +28,16 @@ button:hover {
 }
 
 .heading{
-    border: 3px solid #ffffff;
+    border: 2px solid #ffffff;
     border-bottom: #ffffff;
     border-style: none none solid none;
     border-radius: 15px;
-    border-width: 50%;
+    border-width: 20%;
     text-align: center;
     padding-top: 15px;
     padding-bottom: 5px;
-    margin: auto;
+    margin-left: 5%;
+    margin-right: 5%;
 }
 
 .panel{
@@ -67,4 +68,8 @@ button:hover {
     border-radius: 12px;
     font-size: 14px;
     font-weight: bold;
+}
+
+.msg{
+    color:#ccc;
 }

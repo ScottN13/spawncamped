@@ -12,8 +12,7 @@ from datetime import datetime
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
 guildId = int(os.getenv('guildId'))
-scotty = int(os.getenv('scotty'))
-bbq = int(os.getenv('bbq'))
+owner = int(os.getenv('owner')) # Bot Owner. Change it in the .env file.
 
 reconnect = 0
 handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
@@ -34,7 +33,7 @@ def say(message):
 
 # external helper functions
 async def shutdownBot():
-    await bot.close()
+    # await bot.close()
     return True
 
 async def isBotOnline():
@@ -187,8 +186,6 @@ def calc_bonus(user_id, limit, multiplier):
 @bot.event
 async def on_ready():
     assert bot.user is not None
-    import shared
-    shared.bot_online = True
     say("               ")
     say("[green][bold]----------------------------")
     say(f'[green]logged in as {bot.user}')
@@ -330,7 +327,7 @@ async def add(ctx, left: int, right: int):
 
 @bot.command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
-   if ctx.author.id == scotty or bbq:
+   if ctx.author.id == owner:
         say(f"Shutdown command issued by {ctx.author}")
         await ctx.reply("*ok*")
         logging.info(f"stopped by {ctx.author}")
@@ -348,7 +345,7 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
     trusted = discord.utils.get(ctx.guild.roles, id=1433854562875215972)
     role_type = role_type.lower()
 
-    if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
+    if ctx.author.id == owner: # checks if its bot owner
         if role_type in ["friends", "friend"]:
             try: 
                 await receiever.add_roles(member)
