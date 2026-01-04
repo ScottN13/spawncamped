@@ -30,6 +30,8 @@ Now you should create these 4 things: (if not already existing.)
 
 Skipping these will make the bot **not** work properly.
 
+In .env, add `DISCORD_TOKEN=""` and insert your bot's token there.
+
 That's it! You may run the bot via `update.sh`. Make sure to give the script appropiate permissions via chmod first.
 Web panel is active at port `8000`. You can change the port at the bottom of `webpanel.py`.
 
