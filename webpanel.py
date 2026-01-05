@@ -12,7 +12,7 @@ from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import asyncio
 import subprocess
-import shared
+
 from main import shutdownBot, isBotOnline
 
 router = APIRouter()
@@ -20,6 +20,9 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 logger = logging.getLogger("app.requests")
 handler = logging.FileHandler(filename='logs/webpanel.log', encoding='utf-8', mode='w')
+bot_log_file_path = "logs/discord.log"
+panel_log_file_path = "logs/webpanel.log"
+bot_online = ""
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -46,9 +49,9 @@ async def log_requests(request: Request, call_next):
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    print(shared.bot_online)
-    status_class = "status-online" if shared.bot_online else "status-offline"
-    status_text = "ONLINE" if shared.bot_online else "OFFLINE"
+    # print(sharbot_online)
+    status_class = "status-online" if bot_online else "status-offline"
+    status_text = "ONLINE" if bot_online else "OFFLINE"
 
     html = open("templates/index.html").read()
     html = html.replace("{{STATUS_CLASS}}", status_class)
@@ -60,6 +63,12 @@ async def home(request: Request):
     else:
         html = html.replace("{{MESSAGE}}", "")
 
+    displayDiv = request.query_params.get("displayDiv")
+    if displayDiv:
+        html = html.replace("{{LOGS}}", displayDiv)
+    else:
+        html = html.replace("{{LOGS}}", "")
+
     return html
     
 
@@ -69,23 +78,21 @@ async def api_status():
         {"online": isBotOnline}
     })
 
-@app.get("/logs", response_class=PlainTextResponse) 
+@app.get("/logs", response_class=RedirectResponse) 
 async def logs():
-    if not os.path.exists(shared.bot_log_file_path):
-        return PlainTextResponse("No logs found.")
-    
-    return PlainTextResponse(
-        open(shared.bot_log_file_path).read(),
-        media_type="text/plain"
-    )
+    if not os.path.exists(bot_log_file_path):
+        return RedirectResponse(f"/?displayDiv=No logs found.")
+    else:
+        message = open(bot_log_file_path).read()
+        return RedirectResponse(f"/?displayDiv={message}")
 
 @app.get("/panel_logs")
 async def getPanelLogs():
-    if not os.path.exists(shared.panel_log_file_path):
+    if not os.path.exists(panel_log_file_path):
         return PlainTextResponse("No logs found.")
     
     return PlainTextResponse(
-        open(shared.panel_log_file_path).read(),
+        open(panel_log_file_path).read(),
         media_type="text/plain"
     )
 
@@ -98,11 +105,13 @@ async def shutdown_bot():
     else: 
         return RedirectResponse("/")
 
+"""
 @app.get("/start_bot")
 async def start():
     if not shared.bot_online:
         asyncio.create_task(shared.start_bot())
     return RedirectResponse("/")
+"""
 
 if __name__ == "__main__":
     import uvicorn

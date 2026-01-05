@@ -14,11 +14,11 @@ If you're planning to host this on another linux machine, you may skip this part
 
 Then you should
 ```
-cd spawncamped
+cd spawncamped (if not in the directory already)
 python3 -m venv botenv
 source botenv/bin/activate
 ```
-Whenever you want to update the bot, remember to active the bot's virtual enviroment by typing `source botenv/bin/activate`
+Whenever you want to update the bot, remember to activate the bot's virtual enviroment by typing `source botenv/bin/activate`
 
 Then go ahead and install all dependencies using `pip install -r requirements.txt`
 
@@ -30,7 +30,7 @@ Now you should create these 4 things: (if not already existing.)
 
 Skipping these will make the bot **not** work properly.
 
-In .env, add `DISCORD_TOKEN=""` and insert your bot's token there.
+In .env, add `DISCORD_TOKEN=""` and insert your bot's token there. Also make sure you add an `owner=""` variable and your discord user id as well.
 
 That's it! You may run the bot via `update.sh`. Make sure to give the script appropiate permissions via chmod first.
 Web panel is active at port `8000`. You can change the port at the bottom of `webpanel.py`.
@@ -38,3 +38,6 @@ Web panel is active at port `8000`. You can change the port at the bottom of `we
 ## Updating bot
 
 Always use `update.sh` to update. Make sure git is installed first!
+
+## Important
+Some code in this bot is specific to my (closed) discord server and will not work unless you do some editing.

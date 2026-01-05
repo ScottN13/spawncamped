@@ -829,6 +829,4 @@ class Gambling(commands.Cog): # gambling commands
             say(f"[green]{ctx.author} spun roulette and landed on {result}")
 
 if __name__ == "__main__":
-    import shared
-    shared.bot_online = True
     bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)

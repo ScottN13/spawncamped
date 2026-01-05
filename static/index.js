@@ -17,8 +17,10 @@ async function refreshStatus() {
     }
 }
 
+
+
 // Refresh every 5 seconds
-setInterval(refreshStatus, 5000);
+// setInterval(refreshStatus, 5000);
 
 // Run once immediately on page load
-refreshStatus();
+//refreshStatus();
