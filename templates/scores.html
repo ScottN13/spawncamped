@@ -1,0 +1,30 @@
+<html>
+<head>
+    <title>Edit Scores</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<h2>Score Editor</h2>
+
+<form method="post" action="/scores/update">
+    <table>
+        <tr>
+            <th>User ID</th>
+            <th>Total Score</th>
+            <th>Daily Debt</th>
+            <th>Bonus Multiplier</th>
+        </tr>
+
+        {{ROWS}}
+    </table>
+
+    <br>
+    <button type="submit">Save Changes</button>
+</form>
+
+<br>
+<a href="/"><button>← Back to Dashboard</button></a>
+
+</body>
+</html>

@@ -26,6 +26,7 @@ bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, statu
 
 MY_GUILD = discord.Object(id=guildId)
 SCORES_FILE = 'scores.json'
+STATUS_FILE = 'status.json' # This is such a finniky workaround
 
 def say(message):
     from rich import print
@@ -37,9 +38,9 @@ async def shutdownBot():
     return True
 
 async def isBotOnline():
-    online = bot.is_ready() and not bot.is_closed()
-    return {"online": online}
-
+    with open(STATUS_FILE, 'r') as f:
+        status = ["online"]
+        json.dump()
 
 # functions for score management
 def load_scores(): # fetches scores from scores.json
@@ -667,7 +668,7 @@ class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
         self.bot = bot
         for command in self.get_commands():
-            command.add_check(commands.cooldown(1, 5, commands.BucketType.user))
+            command.add_check(commands.cooldown(1, 5, commands.BucketType.user)) # i don't think this works.
 
     @commands.command(name="roll", description="rolls a dice")
     async def roll(self, ctx, sides: int = 6): # default to 6 sided dice
@@ -794,7 +795,7 @@ class Gambling(commands.Cog): # gambling commands
         # Black: 2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36
         # 0: House wins
         red_numbers = [1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35]
-        black_numbers = [2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36]
+        black_numbers = [2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36] # I understand this isn't used but I'll continue to improve upon all gambling games.
             
         result = random.randint(0, 36)
             
@@ -827,6 +828,19 @@ class Gambling(commands.Cog): # gambling commands
             
             logging.info(f"{ctx.author} spun roulette and landed on {result}")
             say(f"[green]{ctx.author} spun roulette and landed on {result}")
+
+class Jobs(commands.Cog): # more ways of earning points
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.Command(name="fish", description="Go fishing.")
+    async def fish(self, ctx): # Soon.
+
+        # the more weight, the better?
+        # add other types of baits to shop? 
+
+        return
+
 
 if __name__ == "__main__":
     bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)

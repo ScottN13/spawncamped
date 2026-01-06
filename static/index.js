@@ -18,7 +18,6 @@ async function refreshStatus() {
 }
 
 
-
 // Refresh every 5 seconds
 // setInterval(refreshStatus, 5000);
 

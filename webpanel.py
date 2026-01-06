@@ -10,8 +10,6 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-import asyncio
-import subprocess
 
 from main import shutdownBot, isBotOnline
 
@@ -21,9 +19,24 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 logger = logging.getLogger("app.requests")
 handler = logging.FileHandler(filename='logs/webpanel.log', encoding='utf-8', mode='w')
 bot_log_file_path = "logs/discord.log"
+scores_file = "scores.json"
 panel_log_file_path = "logs/webpanel.log"
 bot_online = ""
 
+def load_scores(): # Same as in main.py
+    try:
+        with open(scores_file, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+def save_scores(data: dict):
+    with open(scores_file, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+
+"""
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     start = time.time()
@@ -33,7 +46,7 @@ async def log_requests(request: Request, call_next):
     duration = time.time() - start
     client_ip = request.client.host if request.client else "unknown"
 
-    logger.info(
+    logging.info(
         "%s %s %s %d %.2fms",
         client_ip,
         request.method,
@@ -44,7 +57,7 @@ async def log_requests(request: Request, call_next):
     )
 
     return response
-
+"""
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -89,12 +102,10 @@ async def logs():
 @app.get("/panel_logs")
 async def getPanelLogs():
     if not os.path.exists(panel_log_file_path):
-        return PlainTextResponse("No logs found.")
-    
-    return PlainTextResponse(
-        open(panel_log_file_path).read(),
-        media_type="text/plain"
-    )
+        return RedirectResponse(f"/?displayDiv=No logs found.")
+    else:
+        message = open(panel_log_file_path).read()
+        return RedirectResponse(f"/?displayDiv={message}")
 
 @app.get("/shutdown_bot")
 async def shutdown_bot():
@@ -104,6 +115,45 @@ async def shutdown_bot():
         return RedirectResponse(f"/?msg={message}")
     else: 
         return RedirectResponse("/")
+
+@app.get("/scores", response_class=HTMLResponse)
+async def scores_page():
+    scores = load_scores()
+
+    html = open("templates/scores.html", encoding="utf-8").read()
+
+    rows = []
+    for user_id, data in scores.items():
+        rows.append(f"""
+        <tr>
+            <td>{user_id}</td>
+            <td><input name="{user_id}:total_score" type="number" value="{data['total_score']}"></td>
+            <td><input name="{user_id}:daily_debt" type="number" value="{data['daily_debt']}"></td>
+            <td><input name="{user_id}:bonus_multiplier" type="number" step="0.1" value="{data['bonus_multiplier']}"></td>
+        </tr>
+        """)
+
+    html = html.replace("{{ROWS}}", "\n".join(rows))
+    return html
+
+@app.post("/scores/update")
+async def update_scores(request: Request):
+    form = await request.form()
+    scores = load_scores()
+
+    for key, value in form.items():
+        user_id, field = key.split(":")
+        if user_id not in scores:
+            continue
+
+        # Type conversion & validation
+        if field in ("total_score", "daily_debt"):
+            scores[user_id][field] = int(value)
+        elif field == "bonus_multiplier":
+            scores[user_id][field] = float(value)
+
+    save_scores(scores)
+    return RedirectResponse("/scores", status_code=303)
 
 """
 @app.get("/start_bot")
