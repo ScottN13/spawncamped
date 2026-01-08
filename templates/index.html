@@ -1,11 +1,29 @@
 <html>
 <head>
     <title>spawncamped control panel</title>
-    <link rel="stylesheet" type="text/css" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="/static/index.js" href="/static/index.js"></script>
 </head>
     <body>
-        <h1>Control Panel</h1>
-        <ul>
-            <li><a href="/logs/discord.log">Logs</a></li>
+        <div class="heading">
+            <h1>Control Panel</h1>
+        </div>
+        
+        <div class="panel">
+            
+            <h2>Bot Status: <strong><span id="bot-status" class="{{STATUS_CLASS}}">{{STATUS_TEXT}}</span></h2></strong>
+
+                <div class="btn-row">
+                    <a href="/shutdown_bot"><button class="shutdown">Shutdown Bot</button></a>
+                    <a href="/start_bot"><button class="start">Start Bot</button></a>
+                    <a href="/logs"><button class="logs">View Bot Logs</button></a>
+                    <a href="/panel_logs"><button class="panel_logs">View webpanel logs</button></a>
+                    <a href="/scores"><button class="editscores">Edit scores.json</button></a>
+                </div>
+
+                <p class="msg" id="msg">{{MESSAGE}}</p>
+                <div class="displayDiv">{{LOGS}}</div>
+
+        </div>
     </body>
 </html>

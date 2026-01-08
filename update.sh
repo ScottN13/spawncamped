@@ -34,4 +34,4 @@ echo ""
 echo "--------------------------------"
 echo ""
 
-nohup python3 main.py
+nohup python3 starter.py

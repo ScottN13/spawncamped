@@ -1,0 +1,33 @@
+<html>
+    <head>
+        <title>Edit Scores</title>
+        <link rel="stylesheet" href="/static/style.css">
+    </head>
+    <body>
+        <div class="heading">
+            <h1>Score Editor</h1>
+        </div>
+
+        </br>
+
+        <form class="scores-form" method="post" action="/scores/update">
+            <table>
+                <tr>
+                    <th>User ID</th>
+                    <th>Total Score</th>
+                    <th>Daily Debt</th>
+                    <th>Bonus Multiplier</th>
+                </tr>
+
+                {{ROWS}}
+            </table>
+
+            <br>
+            <div class="submit-div"><button class="submit-button" type="submit">Save Changes</button></div>
+        </form>
+
+        <br>
+        <a href="/"><button>← Back to Dashboard</button></a>
+
+    </body>
+</html>
