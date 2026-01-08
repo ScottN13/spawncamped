@@ -3,3 +3,4 @@ logs/
 scores.json
 scores.json
 *.json
+/__pycache__
