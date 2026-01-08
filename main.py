@@ -152,8 +152,8 @@ async def on_ready():
 
 
 
-@bot.command(name="help", description="shows this message")
-async def help(ctx, type: str = None):
+@bot.hybrid_command(name="help", description="shows this message")
+async def help(ctx, type: str = None): # add options instead of typing it?
     say(f"Help command called by [blue]{ctx.author} with type: {type}")
     if type is None:
         embed = discord.Embed(title="Help Menu", description="List of available commands:", color=0x00ff00)
@@ -206,21 +206,21 @@ async def help(ctx, type: str = None):
         say(f"[red]{ctx.author} provided invalid help type: {type}")
         logging.warning(f"{ctx.author} provided invalid help type: {type}")
 
-@bot.command(name="about", description="shows info about the bot")
+@bot.hybrid_command(name="about", description="shows info about the bot")
 async def about(ctx):
     say(f"About command called by [blue]{ctx.author}")
     logging.info(f"About command used by {ctx.author}")
     embed = discord.Embed(title="about", description="i was spawncamped!", color=0x0000ff)
     embed.add_field(name="made by", value="ScottyFM", inline=False)
     embed.add_field(name="", value="do `!source` for github repo", inline=False)
-    embed.set_footer(timestamp=ctx.message.created_at)
+    # embed.set_footer(timestamp=ctx.message.created_at) this one brokey
 
     #todo: add system stats like uptime, latency, version, platform, etc.
 
     await ctx.send(embed=embed)
 
 
-@bot.command(name="source", description="shows the bot source code link")
+@bot.hybrid_command(name="source", description="shows the bot source code link")
 async def source(ctx):
     say(f"Source command called by [blue]{ctx.author}")
     await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
@@ -254,7 +254,7 @@ async def sync(ctx):
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
     logging.info(f"{len(synced)} slash commands synced by {ctx.author}")
 
-@bot.command(name="ping", description="ping") 
+@bot.hybrid_command(name="ping", description="ping") 
 async def ping(ctx):
     say(f"Ping command called by [blue]{ctx.author}")
     await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
@@ -270,6 +270,7 @@ async def add(ctx, left: int, right: int):
     logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
 """
 
+"""
 @bot.command(name="!stopgamble")
 async def stopgamble(ctx):
     if ctx.author.id == scotty or bbq:
@@ -277,17 +278,13 @@ async def stopgamble(ctx):
         bot.remove_cog("Gambling")
         await ctx.send("no more gambling")
         logging.info(f"Gambling disabled by {ctx.author} for maintenance")
+"""
 
-
-@bot.command(name="stop", description="Stops the bot (owner only)")
+@bot.hybrid_command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
    if ctx.author.id == scotty or bbq:
         say(f"Shutdown command issued by {ctx.author}")
-        await ctx.send("FUCK ALL OF YOU")
-        time.sleep(1)
-        await ctx.send("DONT KILL ME PLEASE!")
-        time.sleep(1)
-        await ctx.send("*AA-*")
+        await ctx.send("*ok*")
         logging.info(f"stopped by {ctx.author}")
         await bot.close()
    else:
@@ -295,8 +292,8 @@ async def stop(ctx):
      logging.info(f"{ctx.author} tried to stop bot")
      say(f"{ctx.author} tried to stop bot")
 
-@bot.command(name="enlist", description="enlists a user into the server")
-async def enlist(ctx, receiever: discord.Member, role_type: str): 
+@bot.hybrid_command(name="enlist", description="enlists a user into the server")
+async def enlist(ctx, receiever: discord.Member, role_type: str):  # Rewrite to discord.Role
     # looks up both roles 
     member = discord.utils.get(ctx.guild.roles, id=1433856941163282637) 
     friends = discord.utils.get(ctx.guild.roles, id=1433856406406303776)
@@ -349,7 +346,7 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
         say(f"[red]{ctx.author} just tried to auto verify someone!")
         logging.warning(f"{ctx.author} tried to enlist {receiever} with role type: {role_type} without permission")
 
-@bot.command(name="pin", description="makes the bot pin a message to annoucements channel")
+@bot.hybrid_command(name="pin", description="makes the bot pin a message to annoucements channel")
 async def pin(ctx, message_id: int):
     channel = bot.get_channel(1433855475090198579) # Announcements channel ID
     try:
@@ -422,7 +419,7 @@ class Social(commands.Cog): # Social stuff for servers
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="mc", description="shows details of mc server")
+    @commands.hybrid_command(name="mc", description="shows details of mc server")
     async def mc(self, ctx):
         embed = discord.Embed(title="Minecraft Server Info", color=0x00ff00)
         embed.add_field(name="Server IP", value="none yet", inline=False)
@@ -435,7 +432,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         self.bot = bot
     
 
-    @commands.command(name="daily", description="gives daily points")
+    @commands.hybrid_command(name="daily", description="gives daily points")
     async def daily(self, ctx):
         if not can_claim_daily(ctx.author.id):
             await ctx.send(f"You already claimed your daily points.")
@@ -460,7 +457,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         logging.info(f"{ctx.author} claimed daily reward: {points} points")
         say(f"[green]{ctx.author} claimed daily reward: +{points} points")
 
-    @commands.command(name="leaderboard", description="shows the leaderboard")
+    @commands.hybrid_command(name="leaderboard", description="shows the leaderboard")
     async def leaderboard(self, ctx):
         top_users = get_leaderboard(10)
         
@@ -482,7 +479,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         logging.info(f"{ctx.author} viewed the leaderboard")
         say(f"[green]{ctx.author} viewed the leaderboard")
 
-    @commands.command(name="loan", description="takes a loan of points")
+    @commands.hybrid_command(name="loan", description="takes a loan of points")
     async def loan(self, ctx, amount: int):
         if amount <= 0:
             await ctx.send("Loan amount must be positive.")
@@ -514,7 +511,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.info(f"{ctx.author} took a loan of {amount} points")
             return
 
-    @commands.command(name="paydebt", description="pays off debt")
+    @commands.hybrid_command(name="paydebt", description="pays off debt")
     async def paydebt(self, ctx, amount: int):
         debt = check_debt(ctx.author.id)
         score = check_score(ctx.author.id)
