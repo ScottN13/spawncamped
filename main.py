@@ -3,7 +3,6 @@ import discord
 import os
 import logging
 import time
-
 from dotenv import load_dotenv
 from discord.ext import commands
 import json
@@ -829,6 +828,7 @@ class Gambling(commands.Cog): # gambling commands
             logging.info(f"{ctx.author} spun roulette and landed on {result}")
             say(f"[green]{ctx.author} spun roulette and landed on {result}")
 
+"""
 class Jobs(commands.Cog): # more ways of earning points
     def __init__(self, bot):
         self.bot = bot
@@ -840,7 +840,11 @@ class Jobs(commands.Cog): # more ways of earning points
         # add other types of baits to shop? 
 
         return
+"""
 
+def startBot():
+    if __name__ == "__main__": # effectively the same thing
+        bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
 
 if __name__ == "__main__":
     bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)

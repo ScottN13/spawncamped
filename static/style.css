@@ -49,6 +49,15 @@ input {
     color: #ccc;
 }
 
+.scores-form{
+    padding-top: 5px;
+}
+
+.submit-div{
+    margin: 20px auto;
+    padding-left: 50%;
+
+}
 
 .heading{
     border: 2px solid #ffffff;
