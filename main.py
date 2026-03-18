@@ -3,7 +3,6 @@ import discord
 import os
 import logging
 import time
-from rich import print as say
 from dotenv import load_dotenv
 from discord.ext import commands
 import json
@@ -11,6 +10,8 @@ from datetime import datetime
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
+guildId = int(os.getenv('guildId'))
+owner = int(os.getenv('owner')) # Bot Owner. Change it in the .env file.
 
 reconnect = 0
 handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
@@ -22,10 +23,23 @@ intents.members = True
 activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
 bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle, help_command=None)
 
-MY_GUILD = discord.Object(id=1433854304678318183)
-scotty = 429526435732914188
-bbq = 550259849896656907
+MY_GUILD = discord.Object(id=guildId)
 SCORES_FILE = 'scores.json'
+STATUS_FILE = 'status.json' # This is such a finniky workaround
+
+def say(message):
+    from rich import print
+    print(f"[blue]BOT:[/blue] {message}")
+
+# external helper functions
+async def shutdownBot():
+    # await bot.close()
+    return True
+
+async def isBotOnline():
+    with open(STATUS_FILE, 'r') as f:
+        status = ["online"]
+        json.dump()
 
 # functions for score management
 def load_scores(): # fetches scores from scores.json
@@ -52,6 +66,19 @@ def can_claim_daily(user_id): # function to check if user can claim daily points
     last_claimed = scores[user_id_str].get('last_daily_claimed')
     
     return last_claimed != today
+
+def scoreCheck(user_id): # checks if user exists in scores.json
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    try:
+        if user_id_str not in scores:
+            scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+            return    
+    except KeyError:
+        logging.error(f"KeyError: User ID {user_id_str} not found in scores.")
+        return False
+
 
 def add_score(user_id, points): # modify a user's score
     scores = load_scores() # gets current scores
@@ -106,6 +133,22 @@ def check_daily_loan(user_id):
     else:
         return None
 
+
+def check_hasDailyYet(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str in scores:
+        last_claimed = scores[user_id_str].get('last_daily_claimed')
+        today = datetime.now().strftime('%Y-%m-%d')
+        if last_claimed == today:
+            return False # has already claimed today
+        else: # has not claimed today
+            embed = discord.Embed(title="Daily Reminder", description="You have not claimed your daily points yet! Use `!daily` to claim them.", color=0xffff00)
+            return embed
+    else:
+        return Exception("User not found in `scores.json`")
+
 def check_debt(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
@@ -146,11 +189,22 @@ async def on_ready():
     say("               ")
     say("[green][bold]----------------------------")
     say(f'[green]logged in as {bot.user}')
-    say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
-    say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
 
-
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown): # Command cooldown (ratelimits)
+            embed = discord.Embed(
+                title="Command on Cooldown",
+                description=f"This command is on cooldown. Try again in {error.retry_after:.1f} seconds.",
+                color=0xff0000
+            )
+    else: # Other errors, bugs, etc.
+        embed = discord.Embed(title="Error", description="An error occurred while processing the command.", color=0xff0000)
+        embed.add_field(name="Details", value=str(error), inline=False)
+        embed.set_footer(text="ping scotty for this")
+        say(f"[red]Error: {error}")
+        logging.error(f"Error processing command from {ctx.author}: {error}")
 
 @bot.hybrid_command(name="help", description="shows this message")
 async def help(ctx, type: str = None): # add options instead of typing it?
@@ -162,7 +216,7 @@ async def help(ctx, type: str = None): # add options instead of typing it?
         embed.add_field(name="!pin <message_id>", value="Pins a message to the announcements channel.", inline=False)
         embed.add_field(name="!source", value="Shows the bot source code link.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed general help menu to {ctx.author}")
         logging.info(f"Displayed general help menu to {ctx.author}")
 
@@ -177,7 +231,7 @@ async def help(ctx, type: str = None): # add options instead of typing it?
         embed.add_field(name="!stats [user]", value="Shows your or another user's score stats.", inline=False)
         embed.add_field(name="!shop", value="Brings up the multiplier shop.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed social help menu to {ctx.author}")
         logging.info(f"Displayed social help menu to {ctx.author}")
 
@@ -187,7 +241,7 @@ async def help(ctx, type: str = None): # add options instead of typing it?
         embed.add_field(name="!flip <wager> <side>", value="Flips a coin. Bet on which side you think it'lk land on and win.", inline=False)
         embed.add_field(name="!spin <wager> <color>", value="Spins a roulette wheel. Bet on either red or black.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed gambling help menu to {ctx.author}")
         logging.info(f"Displayed gambling help menu to {ctx.author}")
 
@@ -197,12 +251,12 @@ async def help(ctx, type: str = None): # add options instead of typing it?
         embed.add_field(name="!enlist <user> <role_type>", value="Enlists a user into the server with specified role type (friends, member, trusted).", inline=False)
         embed.add_field(name="!stop", value="Stops the bot (owner only).", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed admin help menu to {ctx.author}")
         logging.info(f"Displayed admin help menu to {ctx.author}")
 
     elif type not in [None, "social", "gambling", "admin"]:
-        await ctx.send("you have a stroke? it's `!help`.")
+        await ctx.reply("you have a stroke? it's `!help`.")
         say(f"[red]{ctx.author} provided invalid help type: {type}")
         logging.warning(f"{ctx.author} provided invalid help type: {type}")
 
@@ -217,13 +271,13 @@ async def about(ctx):
 
     #todo: add system stats like uptime, latency, version, platform, etc.
 
-    await ctx.send(embed=embed)
+    await ctx.reply(embed=embed)
 
 
 @bot.hybrid_command(name="source", description="shows the bot source code link")
 async def source(ctx):
     say(f"Source command called by [blue]{ctx.author}")
-    await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
+    await ctx.reply("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
     logging.info(f"Provided source code link to {ctx.author}")
 
 @bot.command(name="createrules", description="creates the server rules embed")
@@ -235,64 +289,44 @@ async def createrules(ctx, title, *, description):
     try:
         # await discord.TextChannel.send(id=rules, embed=embed) # Rules channel ID # this doesnt send it to the rules channel for some reason
         await rules.send(embed=embed)
-        await ctx.send("Done, i created the rules embed.")
+        await ctx.reply("Done, i created the rules embed.")
         logging.info(f"Created rules embed for {ctx.author} with contents: {title} - {description}")
     except Exception as e:
-        await ctx.send(f"i uhm: {e}")
+        await ctx.reply(f"error: {e}")
         say(f"[red]Error: {e}") 
         logging.error(f"Error creating rules embed for {ctx.author}: {e}")
 
-@bot.command(name="sync", description="syncs slash commands")
+@bot.hybrid_command(name="sync", description="syncs slash commands")
 async def sync(ctx):
-
     bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
-    await ctx.send(f"{len(synced)} Slash commands synced.")
     await bot.add_cog(Social(bot))
     await bot.add_cog(leaderboard(bot))
     await bot.add_cog(Gambling(bot))
+    await ctx.reply(f"{len(synced)} Slash commands synced. Enabled cogs.")
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
     logging.info(f"{len(synced)} slash commands synced by {ctx.author}")
 
 @bot.hybrid_command(name="ping", description="ping") 
 async def ping(ctx):
     say(f"Ping command called by [blue]{ctx.author}")
-    await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
+    await ctx.reply(f"`Pong! Latency is {bot.latency} ms`")
     logging.info(f"Ping command used by {ctx.author} with latency {bot.latency} ms")
 
 
-"""
-@bot.command(name='add')
-async def add(ctx, left: int, right: int):
-    # adds two numbers together
-    say(f"Add command called by {ctx.author} with arguments: {left}, {right}")
-    await ctx.send(left + right)
-    logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
-"""
-
-"""
-@bot.command(name="!stopgamble")
-async def stopgamble(ctx):
-    if ctx.author.id == scotty or bbq:
-        say(f"StopGamble command called by [blue]{ctx.author}")
-        bot.remove_cog("Gambling")
-        await ctx.send("no more gambling")
-        logging.info(f"Gambling disabled by {ctx.author} for maintenance")
-"""
-
 @bot.hybrid_command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
-   if ctx.author.id == scotty or bbq:
+   if ctx.author.id == owner:
         say(f"Shutdown command issued by {ctx.author}")
-        await ctx.send("*ok*")
+        await ctx.reply("*ok*")
         logging.info(f"stopped by {ctx.author}")
         await bot.close()
    else:
-     await ctx.send("Foolish mortal, you do not have permission to do that.")
+     await ctx.reply("Foolish mortal, you do not have permission to do that.")
      logging.info(f"{ctx.author} tried to stop bot")
      say(f"{ctx.author} tried to stop bot")
 
-@bot.hybrid_command(name="enlist", description="enlists a user into the server")
+@bot.hybrid_command(name="enlist", description="enlists a user into the server") # this command is specific to my server, as we change the name of the roles alot.
 async def enlist(ctx, receiever: discord.Member, role_type: str):  # Rewrite to discord.Role
     # looks up both roles 
     member = discord.utils.get(ctx.guild.roles, id=1433856941163282637) 
@@ -300,27 +334,27 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):  # Rewrite to 
     trusted = discord.utils.get(ctx.guild.roles, id=1433854562875215972)
     role_type = role_type.lower()
 
-    if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
+    if ctx.author.id == owner: # checks if its me or BBQ
         if role_type in ["friends", "friend"]:
             try: 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
-                await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+                await ctx.reply(f"Done, verified {receiever} to the server (friend privileges).")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type in ["member", "members"]:
             try: 
                 await receiever.add_roles(member)
-                await ctx.send(f"Done, verified {receiever} to the server.")
+                await ctx.reply(f"Done, verified {receiever} to the server.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
                 
@@ -329,20 +363,20 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):  # Rewrite to 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
                 await receiever.add_roles(trusted)
-                await ctx.send(f"Done, entrusted {receiever}.")
+                await ctx.reply(f"Done, entrusted {receiever}.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type not in ["friends", "friend", "member", "members", "trusted"]:
-            await ctx.send(f"I don't know what `{role_type}` means. Maybe you made a typo?")
+            await ctx.reply(f"I don't know what `{role_type}` means. Maybe you made a typo?")
             logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
     else:
-        await ctx.send("You have no permission to do that!")
+        await ctx.reply("You have no permission to do that!")
         say(f"[red]{ctx.author} just tried to auto verify someone!")
         logging.warning(f"{ctx.author} tried to enlist {receiever} with role type: {role_type} without permission")
 
