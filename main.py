@@ -3,14 +3,17 @@ import discord
 import os
 import logging
 import time
-from rich import print as say
+import asyncio
 from dotenv import load_dotenv
 from discord.ext import commands
+from typing import Literal
 import json
 from datetime import datetime
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
+guildId = int(os.getenv('guildId'))
+owner = int(os.getenv('owner')) # Bot Owner. Change it in the .env file.
 
 reconnect = 0
 handler = logging.FileHandler(filename='logs/discord.log', encoding='utf-8', mode='w')
@@ -22,10 +25,23 @@ intents.members = True
 activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
 bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle, help_command=None)
 
-MY_GUILD = discord.Object(id=1433854304678318183)
-scotty = 429526435732914188
-bbq = 550259849896656907
+MY_GUILD = discord.Object(id=guildId)
 SCORES_FILE = 'scores.json'
+STATUS_FILE = 'status.json' # This is such a finniky workaround
+
+def say(message):
+    from rich import print
+    print(f"[blue]BOT:[/blue] {message}")
+
+# external helper functions
+async def shutdownBot():
+    # await bot.close()
+    return True
+
+async def isBotOnline():
+    with open(STATUS_FILE, 'r') as f:
+        status = ["online"]
+        json.dump()
 
 # functions for score management
 def load_scores(): # fetches scores from scores.json
@@ -53,15 +69,26 @@ def can_claim_daily(user_id): # function to check if user can claim daily points
     
     return last_claimed != today
 
+def scoreCheck(user_id): # checks if user exists in scores.json
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    try:
+        if user_id_str not in scores:
+            scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+            return    
+    except KeyError:
+        logging.error(f"KeyError: User ID {user_id_str} not found in scores.")
+        return False
+
+
 def add_score(user_id, points): # modify a user's score
     scores = load_scores() # gets current scores
     user_id_str = str(user_id)
     
     if user_id_str not in scores:
         scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0}
-
     scores[user_id_str]['total_score'] += points
-    scores[user_id_str]['last_daily_claimed'] = datetime.now().strftime('%Y-%m-%d')
     
     save_scores(scores) # make sure to always save after modifying
     return points
@@ -106,6 +133,22 @@ def check_daily_loan(user_id):
     else:
         return None
 
+
+def check_hasDailyYet(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str in scores:
+        last_claimed = scores[user_id_str].get('last_daily_claimed')
+        today = datetime.now().strftime('%Y-%m-%d')
+        if last_claimed == today:
+            return False # has already claimed today
+        else: # has not claimed today
+            embed = discord.Embed(title="Daily Reminder", description="You have not claimed your daily points yet! Use `!daily` to claim them.", color=0xffff00)
+            return embed
+    else:
+        return Exception("User not found in `scores.json`")
+
 def check_debt(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
@@ -133,10 +176,15 @@ def get_leaderboard(limit=10): # returns top 10 users by score
     sorted_users = sorted(scores.items(), key=lambda x: x[1]['total_score'], reverse=True)
     return sorted_users[:limit]
 
-def calc_bonus(user_id, limit, multiplier):
-    multiplier = check_bonus_multiplier(user_id=user_id)
+def calc_bonus(user_id, limit, multiplier=None):
+    # Use provided multiplier if given, otherwise fetch user's multiplier
+    if multiplier is None:
+        multiplier = check_bonus_multiplier(user_id=user_id)
     limit_calc = random.randint(1, limit)
     return limit_calc, multiplier
+
+# pending trivia questions: message_id -> {author, correct, answers, wager}
+TRIVIA_PENDING = {}
 
 ################
 
@@ -146,14 +194,26 @@ async def on_ready():
     say("               ")
     say("[green][bold]----------------------------")
     say(f'[green]logged in as {bot.user}')
-    say(f"platform: {os.name}, python version: {os.sys.version}, discord.py version: {discord.__version__}")
-    say(f"system: {os.uname() if hasattr(os, 'uname') else 'N/A'}")
     say("[green][bold]----------------------------")
 
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown): # Command cooldown (ratelimits)
+            embed = discord.Embed(
+                title="Command on Cooldown",
+                description=f"This command is on cooldown. Try again in {error.retry_after:.1f} seconds.",
+                color=0xff0000
+            )
+    else: # Other errors, bugs, etc.
+        embed = discord.Embed(title="Error", description="An error occurred while processing the command.", color=0xff0000)
+        embed.add_field(name="Details", value=str(error), inline=False)
+        embed.set_footer(text="ping scotty for this")
+        say(f"[red]Error: {error}")
+        logging.error(f"Error processing command from {ctx.author}: {error}")
 
-
-@bot.command(name="help", description="shows this message")
-async def help(ctx, type: str = None):
+@bot.hybrid_command(name="help", description="shows this message")
+@discord.app_commands.describe(type="Choose a help category")
+async def help(ctx, type: Literal["general", "social", "gambling", "admin", "fun"] = None):
     say(f"Help command called by [blue]{ctx.author} with type: {type}")
     if type is None:
         embed = discord.Embed(title="Help Menu", description="List of available commands:", color=0x00ff00)
@@ -161,8 +221,8 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!ping", value="Checks the bot's latency.", inline=False)
         embed.add_field(name="!pin <message_id>", value="Pins a message to the announcements channel.", inline=False)
         embed.add_field(name="!source", value="Shows the bot source code link.", inline=False)
-        embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling, fun")
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed general help menu to {ctx.author}")
         logging.info(f"Displayed general help menu to {ctx.author}")
 
@@ -177,19 +237,31 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!stats [user]", value="Shows your or another user's score stats.", inline=False)
         embed.add_field(name="!shop", value="Brings up the multiplier shop.", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed social help menu to {ctx.author}")
         logging.info(f"Displayed social help menu to {ctx.author}")
 
     if type == "gambling":
         embed = discord.Embed(title="Gambling Help Menu", description="List of gambling commands:", color=0xffff00)
-        embed.add_field(name="!roll <sides>", value="Rolls a dice with specified number of sides (default 6).", inline=False)
-        embed.add_field(name="!flip <wager> <side>", value="Flips a coin. Bet on which side you think it'lk land on and win.", inline=False)
-        embed.add_field(name="!spin <wager> <color>", value="Spins a roulette wheel. Bet on either red or black.", inline=False)
-        embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        embed.add_field(name="!roll <wager> <sides>", value="Rolls a dice and risks your points.", inline=False)
+        embed.add_field(name="!flip <wager> <side>", value="Flips a coin. Bet on heads or tails.", inline=False)
+        embed.add_field(name="!spin <wager> <color>", value="Spins a roulette wheel. Bet on red or black.", inline=False)
+        embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling, fun")
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed gambling help menu to {ctx.author}")
         logging.info(f"Displayed gambling help menu to {ctx.author}")
+
+    if type == "fun":
+        embed = discord.Embed(title="Fun Help Menu", description="List of fun commands:", color=0xFF6B6B)
+        embed.add_field(name="!joke", value="Tells a random joke.", inline=False)
+        embed.add_field(name="!dex <word>", value="Looks up a word on Urban Dictionary.", inline=False)
+        embed.add_field(name="!magic8ball <question>", value="Ask the magic 8-ball a question.", inline=False)
+        embed.add_field(name="!trivia <wager>", value="Answer a trivia question and wager points.", inline=False)
+        embed.add_field(name="!meme [top_text] [bottom_text]", value="Generate a random meme.", inline=False)
+        embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling, fun")
+        await ctx.reply(embed=embed)
+        say(f"[green]Displayed fun help menu to {ctx.author}")
+        logging.info(f"Displayed fun help menu to {ctx.author}")
 
     if type == "admin":
         embed = discord.Embed(title="Admin Help Menu", description="List of admin commands:", color=0xff0000)
@@ -197,133 +269,115 @@ async def help(ctx, type: str = None):
         embed.add_field(name="!enlist <user> <role_type>", value="Enlists a user into the server with specified role type (friends, member, trusted).", inline=False)
         embed.add_field(name="!stop", value="Stops the bot (owner only).", inline=False)
         embed.set_footer(text="created by ScottyFM. help categories: admin, social, gambling")
-        await ctx.send(embed=embed)
+        await ctx.reply(embed=embed)
         say(f"[green]Displayed admin help menu to {ctx.author}")
         logging.info(f"Displayed admin help menu to {ctx.author}")
 
-    elif type not in [None, "social", "gambling", "admin"]:
-        await ctx.send("you have a stroke? it's `!help`.")
+    elif type not in [None, "social", "gambling", "admin", "fun"]:
+        await ctx.reply("you have a stroke? it's `!help`.")
         say(f"[red]{ctx.author} provided invalid help type: {type}")
         logging.warning(f"{ctx.author} provided invalid help type: {type}")
 
-@bot.command(name="about", description="shows info about the bot")
+@bot.hybrid_command(name="about", description="shows info about the bot")
 async def about(ctx):
     say(f"About command called by [blue]{ctx.author}")
     logging.info(f"About command used by {ctx.author}")
     embed = discord.Embed(title="about", description="i was spawncamped!", color=0x0000ff)
     embed.add_field(name="made by", value="ScottyFM", inline=False)
     embed.add_field(name="", value="do `!source` for github repo", inline=False)
-    embed.set_footer(timestamp=ctx.message.created_at)
+    # embed.set_footer(timestamp=ctx.message.created_at) this one brokey
 
     #todo: add system stats like uptime, latency, version, platform, etc.
 
-    await ctx.send(embed=embed)
+    await ctx.reply(embed=embed)
 
 
-@bot.command(name="source", description="shows the bot source code link")
+@bot.hybrid_command(name="source", description="shows the bot source code link")
 async def source(ctx):
     say(f"Source command called by [blue]{ctx.author}")
-    await ctx.send("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
+    await ctx.reply("You can find my source code [here](https://github.com/ScottN13/spawncamped)")
     logging.info(f"Provided source code link to {ctx.author}")
 
-@bot.command(name="createrules", description="creates the server rules embed")
+@bot.hybrid_command(name="createrules", description="creates the server rules embed")
 async def createrules(ctx, title, *, description):
     rules = bot.get_channel(1433865285097619546) # Rules channel ID
     say(f"CreateRules command called by [blue]{ctx.author}")
-    embed = discord.Embed(title=title, description=description, color=0xff0000, timestamp=ctx.message.created_at)
+    # ctx.message may be None for slash invocations; fall back to current time
+    created = getattr(ctx, 'message', None)
+    timestamp = created.created_at if created is not None else datetime.utcnow()
+    embed = discord.Embed(title=title, description=description, color=0xff0000, timestamp=timestamp)
     embed.set_footer(text="By joining the server, you agree to these rules.")
     try:
         # await discord.TextChannel.send(id=rules, embed=embed) # Rules channel ID # this doesnt send it to the rules channel for some reason
         await rules.send(embed=embed)
-        await ctx.send("Done, i created the rules embed.")
+        await ctx.reply("Done, i created the rules embed.")
         logging.info(f"Created rules embed for {ctx.author} with contents: {title} - {description}")
     except Exception as e:
-        await ctx.send(f"i uhm: {e}")
+        await ctx.reply(f"error: {e}")
         say(f"[red]Error: {e}") 
         logging.error(f"Error creating rules embed for {ctx.author}: {e}")
 
-@bot.command(name="sync", description="syncs slash commands")
+@bot.hybrid_command(name="sync", description="syncs slash commands")
 async def sync(ctx):
-
-    bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
-    synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
-    await ctx.send(f"{len(synced)} Slash commands synced.")
+    # Ensure cogs are added before syncing so their hybrid/slash commands are registered
     await bot.add_cog(Social(bot))
     await bot.add_cog(leaderboard(bot))
     await bot.add_cog(Gambling(bot))
+    await bot.add_cog(Fun(bot))
+    bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
+    synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
+    await ctx.reply(f"{len(synced)} Slash commands synced. Enabled cogs.")
     say(f"[green]{len(synced)}  slash commands synced by {ctx.author}")
     logging.info(f"{len(synced)} slash commands synced by {ctx.author}")
 
-@bot.command(name="ping", description="ping") 
+@bot.hybrid_command(name="ping", description="ping") 
 async def ping(ctx):
     say(f"Ping command called by [blue]{ctx.author}")
-    await ctx.send(f"`Pong! Latency is {bot.latency} ms`")
+    await ctx.reply(f"`Pong! Latency is {bot.latency} ms`")
     logging.info(f"Ping command used by {ctx.author} with latency {bot.latency} ms")
 
 
-"""
-@bot.command(name='add')
-async def add(ctx, left: int, right: int):
-    # adds two numbers together
-    say(f"Add command called by {ctx.author} with arguments: {left}, {right}")
-    await ctx.send(left + right)
-    logging.info(f"Add command used by {ctx.author} with arguments: {left}, {right}")
-"""
-
-@bot.command(name="!stopgamble")
-async def stopgamble(ctx):
-    if ctx.author.id == scotty or bbq:
-        say(f"StopGamble command called by [blue]{ctx.author}")
-        bot.remove_cog("Gambling")
-        await ctx.send("no more gambling")
-        logging.info(f"Gambling disabled by {ctx.author} for maintenance")
-
-
-@bot.command(name="stop", description="Stops the bot (owner only)")
+@bot.hybrid_command(name="stop", description="Stops the bot (owner only)")
 async def stop(ctx):
-   if ctx.author.id == scotty or bbq:
+   if ctx.author.id == owner:
         say(f"Shutdown command issued by {ctx.author}")
-        await ctx.send("FUCK ALL OF YOU")
-        time.sleep(1)
-        await ctx.send("DONT KILL ME PLEASE!")
-        time.sleep(1)
-        await ctx.send("*AA-*")
+        await ctx.reply("*ok*")
         logging.info(f"stopped by {ctx.author}")
         await bot.close()
    else:
-     await ctx.send("Foolish mortal, you do not have permission to do that.")
+     await ctx.reply("Foolish mortal, you do not have permission to do that.")
      logging.info(f"{ctx.author} tried to stop bot")
      say(f"{ctx.author} tried to stop bot")
 
-@bot.command(name="enlist", description="enlists a user into the server")
-async def enlist(ctx, receiever: discord.Member, role_type: str): 
+@bot.hybrid_command(name="enlist", description="enlists a user into the server") # this command is specific to my server, as we change the name of the roles alot.
+async def enlist(ctx, receiever: discord.Member, role_type: str):  # Rewrite to discord.Role
     # looks up both roles 
     member = discord.utils.get(ctx.guild.roles, id=1433856941163282637) 
     friends = discord.utils.get(ctx.guild.roles, id=1433856406406303776)
     trusted = discord.utils.get(ctx.guild.roles, id=1433854562875215972)
     role_type = role_type.lower()
 
-    if ctx.author.id == scotty or ctx.author.id == bbq: # checks if its me or BBQ
+    if ctx.author.id == owner: # checks if its me or BBQ
         if role_type in ["friends", "friend"]:
             try: 
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
-                await ctx.send(f"Done, verified {receiever} to the server (friend privileges).")
+                await ctx.reply(f"Done, verified {receiever} to the server (friend privileges).")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type in ["member", "members"]:
             try: 
                 await receiever.add_roles(member)
-                await ctx.send(f"Done, verified {receiever} to the server.")
+                await ctx.reply(f"Done, verified {receiever} to the server.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
                 
@@ -332,24 +386,24 @@ async def enlist(ctx, receiever: discord.Member, role_type: str):
                 await receiever.add_roles(member)
                 await receiever.add_roles(friends)
                 await receiever.add_roles(trusted)
-                await ctx.send(f"Done, entrusted {receiever}.")
+                await ctx.reply(f"Done, entrusted {receiever}.")
                 logging.info(f"{ctx.author} granted {role_type} role to {receiever}")
                 say(f"[green]{ctx.author} granted {role_type} role to {receiever}")
             except Exception as e:
-                await ctx.send(f"An error occurred: {e}")
+                await ctx.reply(f"An error occurred: {e}")
                 say(f"[red]Error: {e}")
                 logging.error(f"Error: {e}")
 
         elif role_type not in ["friends", "friend", "member", "members", "trusted"]:
-            await ctx.send(f"I don't know what `{role_type}` means. Maybe you made a typo?")
+            await ctx.reply(f"I don't know what `{role_type}` means. Maybe you made a typo?")
             logging.warning(f"{ctx.author} tried verifying {receiever} with provided invalid role type: {role_type}")
 
     else:
-        await ctx.send("You have no permission to do that!")
+        await ctx.reply("You have no permission to do that!")
         say(f"[red]{ctx.author} just tried to auto verify someone!")
         logging.warning(f"{ctx.author} tried to enlist {receiever} with role type: {role_type} without permission")
 
-@bot.command(name="pin", description="makes the bot pin a message to annoucements channel")
+@bot.hybrid_command(name="pin", description="makes the bot pin a message to annoucements channel")
 async def pin(ctx, message_id: int):
     channel = bot.get_channel(1433855475090198579) # Announcements channel ID
     try:
@@ -422,7 +476,7 @@ class Social(commands.Cog): # Social stuff for servers
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="mc", description="shows details of mc server")
+    @commands.hybrid_command(name="mc", description="shows details of mc server")
     async def mc(self, ctx):
         embed = discord.Embed(title="Minecraft Server Info", color=0x00ff00)
         embed.add_field(name="Server IP", value="none yet", inline=False)
@@ -435,7 +489,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         self.bot = bot
     
 
-    @commands.command(name="daily", description="gives daily points")
+    @commands.hybrid_command(name="daily", description="gives daily points")
     async def daily(self, ctx):
         if not can_claim_daily(ctx.author.id):
             await ctx.send(f"You already claimed your daily points.")
@@ -447,6 +501,10 @@ class leaderboard(commands.Cog): # i seperated these for organization
         points = 100
         bonus = int(limit_calc * multiplier)
         add_score(ctx.author.id, points + bonus)
+        # mark last daily claimed
+        scores = load_scores()
+        scores[str(ctx.author.id)]['last_daily_claimed'] = datetime.now().strftime('%Y-%m-%d')
+        save_scores(scores)
         
         scores = load_scores()
         total = scores[str(ctx.author.id)]['total_score']
@@ -460,7 +518,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         logging.info(f"{ctx.author} claimed daily reward: {points} points")
         say(f"[green]{ctx.author} claimed daily reward: +{points} points")
 
-    @commands.command(name="leaderboard", description="shows the leaderboard")
+    @commands.hybrid_command(name="leaderboard", description="shows the leaderboard")
     async def leaderboard(self, ctx):
         top_users = get_leaderboard(10)
         
@@ -482,7 +540,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         logging.info(f"{ctx.author} viewed the leaderboard")
         say(f"[green]{ctx.author} viewed the leaderboard")
 
-    @commands.command(name="loan", description="takes a loan of points")
+    @commands.hybrid_command(name="loan", description="takes a loan of points")
     async def loan(self, ctx, amount: int):
         if amount <= 0:
             await ctx.send("Loan amount must be positive.")
@@ -514,7 +572,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.info(f"{ctx.author} took a loan of {amount} points")
             return
 
-    @commands.command(name="paydebt", description="pays off debt")
+    @commands.hybrid_command(name="paydebt", description="pays off debt")
     async def paydebt(self, ctx, amount: int):
         debt = check_debt(ctx.author.id)
         score = check_score(ctx.author.id)
@@ -549,7 +607,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             logging.info(f"{ctx.author} paid off {amount} points of their debt")
             return
 
-    @commands.command(name="donate", description="donates points to another user")
+    @commands.hybrid_command(name="donate", description="donates points to another user")
     async def donate(self, ctx, member: discord.Member, amount: int):
         if amount <= 0:
             await ctx.send("tf do they wanna do with NO points?")
@@ -571,7 +629,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} donated {amount} points to {member}")
 
-    @commands.command(name="stats", description="shows your score stats")
+    @commands.hybrid_command(name="stats", description="shows your score stats")
     async def stats(self, ctx, member: discord.Member = None):
 
         if member is None:
@@ -610,7 +668,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} viewed {member}'s score stats")
 
-    @commands.command(name="shop", description="shows the multiplier shop")
+    @commands.hybrid_command(name="shop", description="shows the multiplier shop")
     async def shop(self, ctx):
         embed = discord.Embed(title="Multiplier Shop", description="Buy bonus multipliers to increase your earnings!", color=0xffff00)
         embed.add_field(name="1.1x Multiplier", value="Cost: 100 points\nIncreases all earnings by 10%.", inline=False)
@@ -625,14 +683,20 @@ class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="roll", description="rolls a dice")
-    async def roll(self, ctx, sides: int = 6): # default to 6 sided dice
+    @commands.hybrid_command(name="roll", description="rolls a dice (wager, sides)")
+    async def roll(self, ctx, wager: int = 1, sides: int = 6): # default to 1 point wager, 6 sided dice
         import random
-        
+        import math
+
         user_score = check_score(ctx.author.id)
-        if user_score is None or user_score <= 0: # check if user has any points
-            await ctx.send("You don't have any points yet.")
-            logging.warning(f"{ctx.author} tried to roll dice with no score")
+        if user_score is None or user_score < wager:
+            await ctx.send("You don't have enough points to make that wager.")
+            logging.warning(f"{ctx.author} tried to roll dice with insufficient points for wager: {wager}")
+            return
+
+        if wager <= 0:
+            await ctx.send("Please wager a positive number of points.")
+            logging.warning(f"{ctx.author} tried to roll with invalid wager: {wager}")
             return
 
         if sides < 2:
@@ -643,135 +707,139 @@ class Gambling(commands.Cog): # gambling commands
             await ctx.send("Dice cannot have more than 32 sides.")
             logging.warning(f"{ctx.author} tried to roll a dice with too many sides: {sides}")
             return
-        
-        limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=sides//2, multiplier=check_bonus_multiplier(ctx.author.id))
+
+        # fair odds: probability to win is number of outcomes > sides/2
+        wins = sides - (sides // 2)
+        losses = sides - wins
+        p_win = wins / sides
 
         result = random.randint(1, sides)
+
+        # base fair profit for a win so expected value ~ 0: profit = wager * (losses / wins)
+        base_profit = max(1, int(round(wager * (losses / wins))))
+
+        # optional bonus from shop (keeps small extra player benefit)
+        limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=sides//2, multiplier=check_bonus_multiplier(ctx.author.id))
         bonus = int(limit_calc * multiplier)
 
-        if result <= sides / 2 or result == 1: # if the user rolls half the sides or 1, they lose points
-            lost = add_score(ctx.author.id, -result)
-            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost.", color=0xffff00)
-            embed.add_field(name="Points Lost", value=f"{lost}", inline=True)
+        profit = base_profit + bonus
+
+        if result > sides / 2:  # player wins
+            add_score(ctx.author.id, profit)
+            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and won!", color=0x00ff00)
+            embed.add_field(name="Points Earned", value=f"+{profit}", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed.set_footer(text="oof you suck lol")
+            embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
             await ctx.send(embed=embed)
-            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost {lost} points.")
+            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and won {profit} points.")
             return
-        
         else:
-            scored = add_score(ctx.author.id, result + bonus) # dice side + bonus (a reroll kinda)
-            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice.", color=0x00ff00)
-            embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
+            add_score(ctx.author.id, -wager)
+            embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost.", color=0xffff00)
+            embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed.set_footer(text=f"Calulated: {result} + ({limit_calc} x {multiplier}x) bonus points")
+            embed.set_footer(text="Better luck next time")
             await ctx.send(embed=embed)
-            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and earned {scored} points.")
+            logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost {wager} points.")
             return
 
-    @commands.command(name="flip", description="flips a coin. Heads is win, tails is lose")
-    async def flip(self, ctx , wager: int = 0, side: str = "heads"): 
+    @commands.hybrid_command(name="flip", description="flips a coin. wager and pick heads/tails")
+    async def flip(self, ctx , wager: int = 1, side: str = "heads"): 
         import random
         user_score = check_score(ctx.author.id)
-        if user_score is None or user_score < wager: # check if user has enough points, would break the leaderboard otherwise
-            await ctx.send("You don't have enough points to make that wager. (you'll go in debt lol)")
+        if user_score is None or user_score < wager:
+            await ctx.send("You don't have enough points to make that wager.")
             logging.warning(f"{ctx.author} tried to flip a coin with insufficient points for wager: {wager}")
             return
 
-        if wager <= 0: # must wager
-            await ctx.send("please wager some points bro.")
+        if wager <= 0:
+            await ctx.send("Please wager a positive number of points.")
             logging.warning(f"{ctx.author} tried to flip a coin with invalid wager: {wager}")
             return
 
-        if side.lower() in ["heads"]: # defaults to heads
-            result = random.choice(["Heads", "Tails"])
+        side_choice = side.lower()
+        if side_choice not in ["heads", "tails"]:
+            await ctx.send("Choose 'heads' or 'tails' as your side.")
+            logging.warning(f"{ctx.author} tried to flip with invalid side: {side}")
+            return
 
-            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
-            bonus = int(limit_calc * multiplier)
-            scored = wager + bonus
-            if result == "Heads":
-                add_score(ctx.author.id, wager + bonus)
-                embed = discord.Embed(title="Coin Flip - Heads", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
-                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + ({limit_calc} x {multiplier}) bonus points")
-                await ctx.send(embed=embed)
-            else:
-                add_score(ctx.author.id, -wager)
-                embed_fail = discord.Embed(title="Coin Flip - Heads", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
-                embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed_fail.set_footer(text="oof you suck lol")
-                await ctx.send(embed=embed_fail)
-            logging.info(f"{ctx.author} flipped a coin and got {result}.")
+        result = random.choice(["heads", "tails"])
 
+        # fair coin: p=0.5 -> profit = wager (winning doubles)
+        base_profit = max(1, int(round(wager)))
+        limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
+        bonus = int(limit_calc * multiplier)
+        profit = base_profit + bonus
+
+        if result == side_choice:
+            add_score(ctx.author.id, profit)
+            embed = discord.Embed(title=f"Coin Flip - {result.capitalize()}", description=f"{ctx.author} won {profit} points!", color=0x00ff00)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
+            await ctx.send(embed=embed)
         else:
-            result = random.choice(["Heads", "Tails"])
-            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
-            bonus = int(limit_calc * multiplier)
-            scored = wager + bonus
-            if result == "Tails":
-                add_score(ctx.author.id, wager + bonus)
-                embed = discord.Embed(title="Coin Flip - Tails", description=f"{ctx.author} won {scored} points!", color=0x00ff00) 
-                embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + ({limit_calc} x {multiplier}x) bonus points")
-                await ctx.send(embed=embed)
-                return
-            else:
-                add_score(ctx.author.id, -wager)
-                embed_fail = discord.Embed(title="Coin Flip - Tails", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
-                embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed_fail.set_footer(text="oof you suck lol")
-                await ctx.send(embed=embed_fail)
-                logging.info(f"{ctx.author} flipped a coin and got {result}.")
-                return
+            add_score(ctx.author.id, -wager)
+            embed_fail = discord.Embed(title=f"Coin Flip - {result.capitalize()}", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
+            embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed_fail.set_footer(text="Better luck next time")
+            await ctx.send(embed=embed_fail)
+
+        logging.info(f"{ctx.author} flipped a coin and got {result}.")
+        return
 
 
-    @commands.command(name="spin", description="spins a roulette wheel")
-    async def spin(self, ctx, wager: int = 0, color: str = "red"):
+    @commands.hybrid_command(name="spin", description="spins a roulette wheel (wager, red/black)")
+    async def spin(self, ctx, wager: int = 1, color: str = "red"):
+        import random
         user_score = check_score(ctx.author.id)
-            
+
         if user_score is None or user_score < wager:
             await ctx.send("You don't have enough points to make that wager.")
             logging.warning(f"{ctx.author} tried to spin with insufficient points for wager: {wager}")
             return
-            
+
         if wager <= 0:
-            await ctx.send("Please wager some points.")
+            await ctx.send("Please wager a positive number of points.")
             logging.warning(f"{ctx.author} tried to spin with invalid wager: {wager}")
             return
-            
+
         color = color.lower()
         if color not in ["red", "black"]:
             await ctx.send("Invalid color. Choose 'red' or 'black'.")
             logging.warning(f"{ctx.author} tried to spin with invalid color: {color}")
             return
-            
-        # Roulette wheel: 0-36
-        # Red: 1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35
-        # Black: 2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36
-        # 0: House wins
+
+        # Roulette wheel: 0-36 (37 slots)
         red_numbers = [1,3,5,7,9,11,13,15,17,19,21,23,25,27,29,31,33,35]
         black_numbers = [2,4,6,8,10,12,14,16,18,20,22,24,26,28,30,32,34,36]
-            
+
         result = random.randint(0, 36)
-            
+
         if result == 0:  # House wins
             add_score(ctx.author.id, -wager)
             embed = discord.Embed(title="Roulette Spin - 0 (House)", description=f"{ctx.author} landed on 0 and lost!", color=0xff0000)
             embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-            embed.set_footer(text="The house always wins")
+            embed.set_footer(text="House number landed")
             await ctx.send(embed=embed)
         else:
             result_color = "red" if result in red_numbers else "black"
+            # fair payout: p_win = 18/37, losses = 19 -> profit = wager * (losses / wins)
+            wins = 18
+            total = 37
+            losses = total - wins
+            p_win = wins / total
+            base_profit = max(1, int(round(wager * (losses / wins))))
+            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=100, multiplier=check_bonus_multiplier(ctx.author.id))
+            bonus = int(limit_calc * multiplier)
+            profit = base_profit + bonus
+
             if result_color == color:  # Player wins
-                limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=100, multiplier=check_bonus_multiplier(ctx.author.id))
-                bonus = int(limit_calc * multiplier)
-                scored = wager + bonus
-                add_score(ctx.author.id, scored)
+                add_score(ctx.author.id, profit)
                 embed = discord.Embed(title=f"Roulette Spin - {result} ({result_color.capitalize()})", description=f"{ctx.author} bet on {color} and won!", color=0x00ff00)
-                embed.add_field(name="Points Earned", value=f"+{scored}", inline=True)
+                embed.add_field(name="Points Earned", value=f"+{profit}", inline=True)
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
-                embed.set_footer(text=f"Score is calculated as amount wagered ({wager}) + {bonus} bonus points")
+                embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
                 await ctx.send(embed=embed)
             else:  # Player loses
                 add_score(ctx.author.id, -wager)
@@ -780,8 +848,251 @@ class Gambling(commands.Cog): # gambling commands
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
                 embed.set_footer(text="Better luck next time")
                 await ctx.send(embed=embed)
-            
-            logging.info(f"{ctx.author} spun roulette and landed on {result}")
-            say(f"[green]{ctx.author} spun roulette and landed on {result}")
+
+        logging.info(f"{ctx.author} spun roulette and landed on {result}")
+        say(f"[green]{ctx.author} spun roulette and landed on {result}")
+
+class Fun(commands.Cog): # fun commands
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.hybrid_command(name="joke", description="tells a random joke")
+    async def joke(self, ctx):
+        say(f"Joke command called by [blue]{ctx.author}")
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://v2.jokeapi.dev/joke/Any') as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('type') == 'single':
+                            joke_text = data.get('joke', 'No joke returned')
+                        else:
+                            joke_text = f"{data.get('setup', '')}\n{data.get('delivery', '')}"
+                        embed = discord.Embed(title="Joke", description=joke_text, color=0xFFD700)
+                        await ctx.send(embed=embed)
+                        logging.info(f"{ctx.author} requested a joke")
+                    else:
+                        await ctx.send("Failed to fetch joke.")
+        except Exception as e:
+            await ctx.send(f"Error fetching joke: {e}")
+            logging.error(f"Error fetching joke: {e}")
+
+    @commands.hybrid_command(name="dex", description="looks up a word on Urban Dictionary")
+    async def urban(self, ctx, word: str):
+        say(f"Urban Dictionary command called by [blue]{ctx.author} for word: {word}")
+        import aiohttp
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f'https://api.urbandictionary.com/v0/define?term={word}') as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('list'):
+                            definition = data['list'][0]
+                            embed = discord.Embed(title=f"Urban Dictionary: {word}", color=0x1f8b4c)
+                            embed.add_field(name="Definition", value=definition.get('definition', 'N/A')[:1024], inline=False)
+                            embed.add_field(name="Example", value=definition.get('example', 'N/A')[:1024], inline=False)
+                            embed.set_footer(text=f"source: urbandictionary.com")
+                            await ctx.send(embed=embed)
+                            logging.info(f"{ctx.author} looked up '{word}' on Urban Dictionary")
+                        else:
+                            await ctx.send(f"No definition found for '{word}'.")
+                    else:
+                        await ctx.send("Failed to fetch definition.")
+        except Exception as e:
+            await ctx.send(f"Error fetching definition: {e}")
+            logging.error(f"Error fetching definition: {e}")
+
+    @commands.hybrid_command(name="magic8ball", description="ask the magic 8-ball a question")
+    async def magic8ball(self, ctx, *, question: str):
+        say(f"Magic 8-ball command called by [blue]{ctx.author}: {question}")
+        responses = [
+            "It is certain.", "It is decidedly so.", "Without a doubt.", "Yes definitely.",
+            "You may rely on it.", "As I see it, yes.", "Most likely.", "Outlook good.",
+            "Yes.", "Signs point to yes.", "Reply hazy, try again.", "Ask again later.",
+            "Better not tell you now.", "Cannot predict now.", "Concentrate and ask again.",
+            "Don't count on it.", "My reply is no.", "My sources say no.", "Outlook not so good.",
+            "Very doubtful."
+        ]
+        response = random.choice(responses)
+        embed = discord.Embed(title="Magic 8-Ball", description=f"{ctx.author} asked: *{question}*", color=0x000000)
+        embed.add_field(name="Answer", value=response, inline=False)
+        embed.set_footer(text="🔮")
+        await ctx.send(embed=embed)
+        logging.info(f"{ctx.author} asked the magic 8-ball: {question}")
+
+    @commands.hybrid_command(name="trivia", description="answer a trivia question and wager points")
+    async def trivia(self, ctx, wager: int = 10):
+        say(f"Trivia command called by [blue]{ctx.author} with wager: {wager}")
+        import aiohttp
+        import html
+        
+        user_score = check_score(ctx.author.id)
+        if user_score is None or user_score < wager:
+            await ctx.send("You don't have enough points to wager that much.")
+            logging.warning(f"{ctx.author} tried trivia with insufficient wager: {wager}")
+            return
+        
+        if wager <= 0:
+            await ctx.send("Please wager a positive amount of points.")
+            return
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('https://opentdb.com/api.php?amount=1&type=multiple') as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if data.get('results'):
+                            question_data = data['results'][0]
+                            question = html.unescape(question_data.get('question', ''))
+                            correct = html.unescape(question_data.get('correct_answer', ''))
+                            incorrect = [html.unescape(a) for a in question_data.get('incorrect_answers', [])]
+                            
+                            all_answers = incorrect + [correct]
+                            random.shuffle(all_answers)
+                            
+                            answer_text = "\n".join([f"{i+1}. {ans}" for i, ans in enumerate(all_answers)])
+                            embed = discord.Embed(title="Trivia Question", description=question, color=0x00BFFF)
+                            embed.add_field(name="Options", value=answer_text, inline=False)
+                            embed.add_field(name="Wager", value=f"{wager} points", inline=False)
+                            embed.set_footer(text="React with the number of your answer (1-4)")
+                            
+                            msg = await ctx.send(embed=embed)
+
+                            # compute fair profit and escrow it from asker
+                            choices = len(all_answers)
+                            base_profit = max(1, int(round(wager * (choices - 1))))
+                            limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
+                            bonus = int(limit_calc * multiplier)
+                            profit = base_profit + bonus
+
+                            # ensure asker can cover potential payout
+                            asker_score = check_score(ctx.author.id) or 0
+                            if asker_score < profit:
+                                await ctx.send(f"You need at least {profit} points to start this trivia (covers potential payout). Reduce your wager or earn more points.")
+                                return
+
+                            # escrow profit from asker
+                            add_score(ctx.author.id, -profit)
+
+                            # Add number reactions for choices (unicode)
+                            emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣']
+                            for e in emojis:
+                                try:
+                                    await msg.add_reaction(e)
+                                except Exception:
+                                    pass
+
+                            # Store question data for reaction-based answer checking
+                            TRIVIA_PENDING[msg.id] = {
+                                'asker': ctx.author.id,
+                                'correct': correct,
+                                'answers': all_answers,
+                                'wager': wager,
+                                'profit': profit,
+                                'channel_id': msg.channel.id,
+                                'winners': [],
+                                'answered_users': []
+                            }
+
+                            # start timeout task to refund if unanswered
+                            async def _trivia_timeout(mid, delay=60):
+                                end_time = time.time() + delay
+                                while True:
+                                    remaining = int(end_time - time.time())
+                                    if remaining <= 0:
+                                        break
+                                    await asyncio.sleep(min(10, remaining))
+                                    entry = TRIVIA_PENDING.get(mid)
+                                    if not entry:
+                                        return
+                                    winners = entry.get('winners', [])
+                                    if msg and msg.channel:
+                                        embed = msg.embeds[0] if msg.embeds else discord.Embed(title="Trivia Question", description=question, color=0x00BFFF)
+                                        embed.set_footer(text=f"Time remaining: {remaining} seconds | Current winners: {len(winners)}")
+                                        try:
+                                            await msg.edit(embed=embed)
+                                        except Exception:
+                                            pass
+
+                                entry = TRIVIA_PENDING.pop(mid, None)
+                                if entry:
+                                    winners = entry.get('winners', [])
+                                    profit_total = entry.get('profit', 0)
+                                    asker = entry.get('asker')
+                                    ch = bot.get_channel(entry.get('channel_id'))
+                                    if winners:
+                                        per_winner = profit_total // len(winners)
+                                        for uid in winners:
+                                            add_score(uid, per_winner)
+                                        remainder = profit_total - (per_winner * len(winners))
+                                        if remainder > 0:
+                                            add_score(asker, remainder)
+                                        if ch:
+                                            await ch.send(embed=discord.Embed(title="Trivia Results", description=f"Trivia ended! Winners: {len(winners)}\nEach winner receives {per_winner} points.\nRemainder refunded to asker.", color=0x00ff00))
+                                    else:
+                                        # refund escrow to asker
+                                        add_score(asker, profit_total)
+                                        if ch:
+                                            await ch.send(f"No correct answers within {delay} seconds. Wager refunded to <@{asker}>.")
+
+                            asyncio.create_task(_trivia_timeout(msg.id, 60))
+
+                            logging.info(f"{ctx.author} started a trivia question and wagered {wager} points (msg {msg.id})")
+                        else:
+                            await ctx.send("Failed to fetch trivia question.")
+                    else:
+                        await ctx.send("Failed to connect to trivia API.")
+        except Exception as e:
+            await ctx.send(f"Error fetching trivia: {e}")
+            logging.error(f"Error fetching trivia: {e}")
+
+
+    @bot.event
+    async def on_reaction_add(reaction, user):
+        # handle trivia reaction answers
+        try:
+            if user.bot:
+                return
+            msg = reaction.message
+            entry = TRIVIA_PENDING.get(msg.id)
+            if not entry:
+                return
+
+            emoji_map = {'1️⃣': 0, '2️⃣': 1, '3️⃣': 2, '4️⃣': 3}
+            idx = emoji_map.get(str(reaction.emoji))
+            if idx is None:
+                return
+
+            if user.id in entry.get('answered_users', []):
+                try:
+                    await msg.remove_reaction(reaction.emoji, user)
+                except Exception:
+                    pass
+                return
+
+            answers = entry.get('answers', [])
+            correct = entry.get('correct')
+            profit = entry.get('profit', 0)
+            asker = entry.get('asker')
+            chosen = answers[idx] if idx < len(answers) else None
+            entry.setdefault('answered_users', []).append(user.id)
+
+            # asker's reactions now count as normal (they may win their own trivia)
+
+            if chosen == correct:
+                winners = entry.get('winners', [])
+                if user.id not in winners:
+                    winners.append(user.id)
+                    entry['winners'] = winners
+                    # do not announce immediately; winners will be announced after timeout
+                    logging.info(f"{user} recorded as trivia winner on msg {msg.id}")
+                # leave pending until timeout to allow multiple winners
+            else:
+                # incorrect: keep the reaction so users can see attempts
+                pass
+        except Exception as e:
+            logging.error(f"Error processing trivia reaction: {e}")
+
 
 bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
