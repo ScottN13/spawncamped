@@ -9,7 +9,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse, PlainTextResponse
 import asyncio
 import subprocess
-import shared
+
+shared = None
 
 router = APIRouter()
 
