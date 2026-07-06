@@ -8,11 +8,11 @@ from dotenv import load_dotenv
 from discord.ext import commands
 from typing import Literal
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
-load_dotenv()
+load_dotenv() # All of these need to be set in the .env file. If not, the bot will not run.
 token = os.getenv('DISCORD_TOKEN')
-guildId = int(os.getenv('guildId'))
+guildId = int(os.getenv('guildId')) # Guild ID where the bot will run.
 owner = int(os.getenv('owner')) # Bot Owner. Change it in the .env file.
 
 reconnect = 0
@@ -22,26 +22,16 @@ ch.setLevel(logging.DEBUG)
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-activity = discord.Activity(type=discord.ActivityType.listening, name="i was spawncamped!", details="do !help for help!")
+activity = discord.Activity(type=discord.ActivityType.listening, name="TESTING BOT", details="TESTING TESTING") # bot
 bot = commands.Bot(command_prefix='!', intents=intents, activity=activity, status=discord.Status.idle, help_command=None)
 
 MY_GUILD = discord.Object(id=guildId)
 SCORES_FILE = 'scores.json'
-STATUS_FILE = 'status.json' # This is such a finniky workaround
 
-def say(message):
+def say(message): # Because the logging handler can't do both console and log file at the same time, this function is used to print to both. Bloaty, I know.
     from rich import print
     print(f"[blue]BOT:[/blue] {message}")
 
-# external helper functions
-async def shutdownBot():
-    # await bot.close()
-    return True
-
-async def isBotOnline():
-    with open(STATUS_FILE, 'r') as f:
-        status = ["online"]
-        json.dump()
 
 # functions for score management
 def load_scores(): # fetches scores from scores.json
@@ -56,6 +46,28 @@ def load_scores(): # fetches scores from scores.json
 def save_scores(scores): # writes to scores.json
     with open(SCORES_FILE, 'w') as f:
         json.dump(scores, f, indent=2)
+
+def add_user(user_id): # adds a new user to scores.json, fallback if user doesn't exist
+    scores = load_scores()
+    user_id_str = str(user_id)
+    
+    if user_id_str not in scores:
+        scores[user_id_str] = {
+            'total_score': 0,
+            'daily_debt': 0,
+            'bonus_multiplier': 1,
+            'dig': 0,
+            'level': 1,
+            'xp': 0,
+            'last_daily_claimed': 0,
+            'temporary_multiplier': {
+                'value': 1.0,
+                'expires_at': 0
+            }
+        }
+        save_scores(scores)
+        return True
+    return False
 
 def can_claim_daily(user_id): # function to check if user can claim daily points
     scores = load_scores()
@@ -75,7 +87,7 @@ def scoreCheck(user_id): # checks if user exists in scores.json
 
     try:
         if user_id_str not in scores:
-            scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+            add_user(user_id)
             return    
     except KeyError:
         logging.error(f"KeyError: User ID {user_id_str} not found in scores.")
@@ -87,7 +99,7 @@ def add_score(user_id, points): # modify a user's score
     user_id_str = str(user_id)
     
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0}
+        add_user(user_id)
     scores[user_id_str]['total_score'] += points
     
     save_scores(scores) # make sure to always save after modifying
@@ -98,7 +110,7 @@ def add_debt(user_id, points): # modify a user's daily debt
     user_id_str = str(user_id)
 
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+        add_user(user_id)
 
     scores[user_id_str]['daily_debt'] += points
     save_scores(scores)
@@ -109,7 +121,7 @@ def add_bonus_multiplier(user_id, multiplier): # modify a user's bonus multiplie
     user_id_str = str(user_id)
 
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+        add_user(user_id)
 
     scores[user_id_str]['bonus_multiplier'] = multiplier
     save_scores(scores)
@@ -119,56 +131,200 @@ def check_score(user_id): # returns a user's score
     scores = load_scores()
     user_id_str = str(user_id)
     
-    if user_id_str in scores:
-        return scores[user_id_str]['total_score']
-    else:
-        return None
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    return scores[user_id_str]['total_score']
     
 def check_daily_loan(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
 
-    if user_id_str in scores:
-        return scores[user_id_str]['daily_debt']
-    else:
-        return None
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    return scores[user_id_str]['daily_debt']
 
 
 def check_hasDailyYet(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
 
-    if user_id_str in scores:
-        last_claimed = scores[user_id_str].get('last_daily_claimed')
-        today = datetime.now().strftime('%Y-%m-%d')
-        if last_claimed == today:
-            return False # has already claimed today
-        else: # has not claimed today
-            embed = discord.Embed(title="Daily Reminder", description="You have not claimed your daily points yet! Use `!daily` to claim them.", color=0xffff00)
-            return embed
-    else:
-        return Exception("User not found in `scores.json`")
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    last_claimed = scores[user_id_str].get('last_daily_claimed')
+    today = datetime.now().strftime('%Y-%m-%d')
+    if last_claimed == today:
+        return False # has already claimed today
+    else: # has not claimed today
+        embed = discord.Embed(title="Daily Reminder", description="You have not claimed your daily points yet! Use `!daily` to claim them.", color=0xffff00)
+        return embed
 
 def check_debt(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
 
-    if user_id_str in scores:
-        return scores[user_id_str]['daily_debt']
-    else:
-        return None
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    return scores[user_id_str]['daily_debt']
 
 def check_bonus_multiplier(user_id):
+    return get_effective_multiplier(user_id)
+
+
+def get_effective_multiplier(user_id):
     scores = load_scores()
     user_id_str = str(user_id)
 
     if user_id_str not in scores:
-        scores[user_id_str] = {'total_score': 0, 'daily_debt': 0, 'daily_score': 0, 'bonus_multiplier': 1}
+        add_user(user_id)
 
-    if user_id_str in scores:
-        return scores[user_id_str].get('bonus_multiplier', 1)
-    else:
-        return 1
+    user_data = scores[user_id_str]
+    base_multiplier = float(user_data.get('bonus_multiplier', 1))
+    temp = user_data.get('temporary_multiplier', {'value': 1.0, 'expires_at': 0})
+    expires_at = int(temp.get('expires_at', 0) or 0)
+    now = int(datetime.utcnow().timestamp())
+
+    if expires_at > now:
+        return base_multiplier * float(temp.get('value', 1.0))
+
+    if temp.get('value', 1.0) != 1.0:
+        user_data['temporary_multiplier'] = {'value': 1.0, 'expires_at': 0}
+        save_scores(scores)
+
+    return base_multiplier
+
+
+def set_temporary_multiplier(user_id, multiplier_value, duration_seconds):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    expires_at = int(datetime.utcnow().timestamp()) + int(duration_seconds)
+    scores[user_id_str]['temporary_multiplier'] = {
+        'value': float(multiplier_value),
+        'expires_at': expires_at
+    }
+    save_scores(scores)
+    return expires_at
+
+
+MAX_LEVEL = 50
+
+
+def xp_required_for_level(level):
+    if level >= MAX_LEVEL:
+        return 0
+    # each new level requires 30-50 more XP than the previous level:
+    # level 1 -> 2 = 100, level 2 -> 3 = 150, level 3 -> 4 = 180, etc.
+    return 100 + 40 * (level - 1) + 10 * ((level - 1) % 2)
+
+
+def add_xp(user_id, amount):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    user_data = scores[user_id_str]
+    level = int(user_data.get('level', 1))
+    xp = int(user_data.get('xp', 0))
+    leveled_up = 0
+
+    if level >= MAX_LEVEL:
+        return {
+            'gained': 0,
+            'leveled_up': 0,
+            'level': MAX_LEVEL,
+            'xp': 0,
+            'next_level_xp': 0
+        }
+
+    xp += int(amount)
+    while level < MAX_LEVEL:
+        required = xp_required_for_level(level)
+        if xp < required:
+            break
+        xp -= required
+        level += 1
+        leveled_up += 1
+
+    if level >= MAX_LEVEL:
+        level = MAX_LEVEL
+        xp = 0
+
+    user_data['xp'] = xp
+    user_data['level'] = level
+    save_scores(scores)
+
+    return {
+        'gained': int(amount) if level < MAX_LEVEL else 0,
+        'leveled_up': leveled_up,
+        'level': level,
+        'xp': xp,
+        'next_level_xp': xp_required_for_level(level)
+    }
+
+
+def get_xp_progress(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    user_data = scores[user_id_str]
+    level = int(user_data.get('level', 1))
+    xp = int(user_data.get('xp', 0))
+    next_level = xp_required_for_level(level)
+    return level, xp, next_level
+
+
+def get_multiplier_status(user_id):
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    temp = scores[user_id_str].get('temporary_multiplier', {'value': 1.0, 'expires_at': 0})
+    expires_at = int(temp.get('expires_at', 0) or 0)
+    now = int(datetime.utcnow().timestamp())
+
+    if expires_at > now and float(temp.get('value', 1.0)) > 1.0:
+        remaining = expires_at - now
+        return float(temp['value']), remaining
+
+    return 1.0, 0
+
+
+def format_duration(seconds):
+    seconds = int(seconds)
+    if seconds <= 0:
+        return "0s"
+    minutes, sec = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if sec:
+        parts.append(f"{sec}s")
+    return " ".join(parts)
 
 
 def get_leaderboard(limit=10): # returns top 10 users by score
@@ -228,7 +384,6 @@ async def help(ctx, type: Literal["general", "social", "gambling", "admin", "fun
 
     if type == "social":
         embed = discord.Embed(title="Social Help Menu", description="List of social commands:", color=0x0000ff)
-        embed.add_field(name="!mc", value="Shows details of the Minecraft server (Currently Xander's).", inline=False)
         embed.add_field(name="!daily", value="Gives daily points. Used in gambling.", inline=False)
         embed.add_field(name="!leaderboard", value="Shows the total points leaderboard.", inline=False)
         embed.add_field(name="!loan <amount>", value="Takes a loan of points (max 3000).", inline=False)
@@ -324,6 +479,7 @@ async def sync(ctx):
     await bot.add_cog(leaderboard(bot))
     await bot.add_cog(Gambling(bot))
     await bot.add_cog(Fun(bot))
+    await bot.add_cog(Utility(bot))
     bot.tree.copy_global_to(guild=discord.Object(id=1433854304678318183))
     synced = await bot.tree.sync(guild=discord.Object(id=1433854304678318183))
     await ctx.reply(f"{len(synced)} Slash commands synced. Enabled cogs.")
@@ -431,12 +587,19 @@ class ShopView(discord.ui.View):
             logging.warning(f"{interaction.user} tried to buy 1.1x multiplier with insufficient points")
             return
         
-        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.1x mult!", color=0xffff00)
-
+        duration = 60 * 60  # 1 hour
+        expires_at = set_temporary_multiplier(user_id, 1.1, duration)
         add_score(user_id, -100)
-        add_bonus_multiplier(user_id, 1.1)
+        embed = discord.Embed(
+            title="Multiplier Shop",
+            description="Thank you for your purchase! You bought a temporary 1.1x multiplier for 1 hour.",
+            color=0xffff00
+        )
+        embed.add_field(name="Multiplier", value="1.1x", inline=True)
+        embed.add_field(name="Duration", value="1 hour", inline=True)
+        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.1x multiplier")
+        logging.info(f"{interaction.user} purchased 1.1x temporary multiplier")
     
     @discord.ui.button(label="Buy 1.25x (300)", style=discord.ButtonStyle.green, custom_id="buy_1.25")
     async def buy_1_25(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -448,12 +611,19 @@ class ShopView(discord.ui.View):
             logging.warning(f"{interaction.user} tried to buy 1.25x multiplier with insufficient points")
             return
         
-        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.25x mult!", color=0xffff00)
-
+        duration = 2 * 60 * 60  # 2 hours
+        expires_at = set_temporary_multiplier(user_id, 1.25, duration)
         add_score(user_id, -300)
-        add_bonus_multiplier(user_id, 1.25)
+        embed = discord.Embed(
+            title="Multiplier Shop",
+            description="Thank you for your purchase! You bought a temporary 1.25x multiplier for 2 hours.",
+            color=0xffff00
+        )
+        embed.add_field(name="Multiplier", value="1.25x", inline=True)
+        embed.add_field(name="Duration", value="2 hours", inline=True)
+        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.25x multiplier")
+        logging.info(f"{interaction.user} purchased 1.25x temporary multiplier")
     
     @discord.ui.button(label="Buy 1.5x (500)", style=discord.ButtonStyle.green, custom_id="buy_1.5")
     async def buy_1_5(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -465,30 +635,30 @@ class ShopView(discord.ui.View):
             logging.warning(f"{interaction.user} tried to buy 1.5x multiplier with insufficient points")
             return
         
-        embed = discord.Embed(title="Multiplier Shop", description="Thank you for your purchase! You bought 1.5x mult!", color=0xffff00)
-        
+        duration = 3 * 60 * 60  # 3 hours
+        expires_at = set_temporary_multiplier(user_id, 1.5, duration)
         add_score(user_id, -500)
-        add_bonus_multiplier(user_id, 1.5)
+        embed = discord.Embed(
+            title="Multiplier Shop",
+            description="Thank you for your purchase! You bought a temporary 1.5x multiplier for 3 hours.",
+            color=0xffff00
+        )
+        embed.add_field(name="Multiplier", value="1.5x", inline=True)
+        embed.add_field(name="Duration", value="3 hours", inline=True)
+        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
         await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.5x multiplier")
+        logging.info(f"{interaction.user} purchased 1.5x temporary multiplier")
 
 class Social(commands.Cog): # Social stuff for servers 
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.hybrid_command(name="mc", description="shows details of mc server")
-    async def mc(self, ctx):
-        embed = discord.Embed(title="Minecraft Server Info", color=0x00ff00)
-        embed.add_field(name="Server IP", value="none yet", inline=False)
-        embed.add_field(name="Version", value="Java 1.20.1 - Forge 47.4.9", inline=False)
-        embed.add_field(name="Modpack link:", value="[click here](https://drive.google.com/drive/folders/1QC7TeQf4ISNDqhdWa06QLQbj7MVGeqCE)", inline=False)
-        await ctx.send(embed=embed)
+    # tbd.
 
 class leaderboard(commands.Cog): # i seperated these for organization
     def __init__(self, bot):
         self.bot = bot
     
-
     @commands.hybrid_command(name="daily", description="gives daily points")
     async def daily(self, ctx):
         if not can_claim_daily(ctx.author.id):
@@ -501,6 +671,7 @@ class leaderboard(commands.Cog): # i seperated these for organization
         points = 100
         bonus = int(limit_calc * multiplier)
         add_score(ctx.author.id, points + bonus)
+        xp_result = add_xp(ctx.author.id, 20)
         # mark last daily claimed
         scores = load_scores()
         scores[str(ctx.author.id)]['last_daily_claimed'] = datetime.now().strftime('%Y-%m-%d')
@@ -512,6 +683,10 @@ class leaderboard(commands.Cog): # i seperated these for organization
         embed = discord.Embed(title="Daily Reward Claimed!", color=0x00ff00)
         embed.add_field(name="Points Earned", value=f"+{points+bonus} (100 + {bonus})", inline=True)
         embed.add_field(name="Total Score", value=total, inline=True)
+        embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=False)
+        embed.add_field(name="Level", value=f"{xp_result['level']} ({xp_result['xp']}/{xp_result['next_level_xp']} XP)", inline=False)
+        if xp_result['leveled_up'] > 0:
+            embed.add_field(name="Level Up!", value=f"You advanced to level {xp_result['level']}!", inline=False)
         embed.set_footer(text="come back tomorrow for more!")
         
         await ctx.send(embed=embed)
@@ -631,41 +806,53 @@ class leaderboard(commands.Cog): # i seperated these for organization
 
     @commands.hybrid_command(name="stats", description="shows your score stats")
     async def stats(self, ctx, member: discord.Member = None):
+        target = member or ctx.author
+        target_id = target.id
 
-        if member is None:
-            score = check_score(ctx.author.id)
-            debt = check_debt(ctx.author.id)
+        score = check_score(target_id)
+        debt = check_debt(target_id)
 
-            if score is None:
+        if score is None:
+            if member is None:
                 await ctx.send("You have no score yet. Use `!daily` to start earning points!")
                 logging.info(f"{ctx.author} checked stats with no score")
-                return
-
-            embed = discord.Embed(title=f"{ctx.author}'s Score Stats", color=0x0000ff)
-            embed.add_field(name="Total Score", value=f"{score} points", inline=False)
-            embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
-            embed.add_field(name="Bonus Multiplier", value=f"{check_bonus_multiplier(ctx.author.id)}x", inline=False)
-            embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
-
-            await ctx.send(embed=embed)
-            logging.info(f"{ctx.author} viewed their score stats")
-
-        else:
-            score = check_score(member.id)
-            debt = check_debt(member.id)
-
-            if score is None:
+            else:
                 await ctx.send(f"{member} has no score yet.")
                 logging.info(f"{ctx.author} checked stats of {member} with no score")
-                return
+            return
 
-            embed = discord.Embed(title=f"{member}'s Score Stats", color=0x0000ff)
-            embed.add_field(name="Total Score", value=f"{score} points", inline=False)
-            embed.add_field(name="Total Debt", value=f"{debt} points", inline=False)
-            embed.add_field(name="Bonus Multiplier", value=f"{check_bonus_multiplier(member.id)}x", inline=False)
-            embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
+        level, xp, next_level = get_xp_progress(target_id)
+        temp_mult, remaining = get_multiplier_status(target_id)
+        effective = check_bonus_multiplier(target_id)
 
-            await ctx.send(embed=embed)
+        display_xp = "MAX" if level >= MAX_LEVEL else f"{xp}/{next_level}"
+        temp_text = f"{temp_mult:.2f}x for {format_duration(remaining)}" if remaining > 0 else "None active"
+
+        avatar_url = None
+        if getattr(target, 'avatar', None):
+            avatar_url = target.avatar.url
+        else:
+            avatar_url = target.default_avatar.url
+
+        embed = discord.Embed(
+            title=f"{target.display_name}'s Stats",
+            description=f"Statistics for {target.mention}",
+            color=0x0000ff
+        )
+        embed.set_author(name=target.display_name, icon_url=avatar_url)
+        embed.set_thumbnail(url=avatar_url)
+        embed.add_field(name="Total Score", value=f"{score} points", inline=True)
+        embed.add_field(name="Total Debt", value=f"{debt} points", inline=True)
+        embed.add_field(name="Level", value=f"{level}{' (MAX)' if level >= MAX_LEVEL else ''}", inline=False)
+        embed.add_field(name="XP", value=display_xp, inline=True)
+        embed.add_field(name="Effective Multiplier", value=f"{effective:.2f}x", inline=True)
+        embed.add_field(name="Temporary Multiplier", value=temp_text, inline=False)
+        embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
+
+        await ctx.send(embed=embed)
+        if member is None:
+            logging.info(f"{ctx.author} viewed their score stats")
+        else:
             logging.info(f"{ctx.author} viewed {member}'s score stats")
 
     @commands.hybrid_command(name="shop", description="shows the multiplier shop")
@@ -726,18 +913,26 @@ class Gambling(commands.Cog): # gambling commands
 
         if result > sides / 2:  # player wins
             add_score(ctx.author.id, profit)
+            xp_result = add_xp(ctx.author.id, 10)
             embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and won!", color=0x00ff00)
             embed.add_field(name="Points Earned", value=f"+{profit}", inline=True)
+            embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            if xp_result['leveled_up'] > 0:
+                embed.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
             embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and won {profit} points.")
             return
         else:
             add_score(ctx.author.id, -wager)
+            xp_result = add_xp(ctx.author.id, 3)
             embed = discord.Embed(title="Dice Roll", description=f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost.", color=0xffff00)
             embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
+            embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            if xp_result['leveled_up'] > 0:
+                embed.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
             embed.set_footer(text="Better luck next time")
             await ctx.send(embed=embed)
             logging.info(f"{ctx.author} rolled a {result} on a {sides}-sided dice and lost {wager} points.")
@@ -773,14 +968,22 @@ class Gambling(commands.Cog): # gambling commands
 
         if result == side_choice:
             add_score(ctx.author.id, profit)
+            xp_result = add_xp(ctx.author.id, 10)
             embed = discord.Embed(title=f"Coin Flip - {result.capitalize()}", description=f"{ctx.author} won {profit} points!", color=0x00ff00)
             embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
+            if xp_result['leveled_up'] > 0:
+                embed.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
             embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
             await ctx.send(embed=embed)
         else:
             add_score(ctx.author.id, -wager)
+            xp_result = add_xp(ctx.author.id, 3)
             embed_fail = discord.Embed(title=f"Coin Flip - {result.capitalize()}", description=f"{ctx.author} lost {wager} points!", color=0xff0000)
             embed_fail.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed_fail.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
+            if xp_result['leveled_up'] > 0:
+                embed_fail.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
             embed_fail.set_footer(text="Better luck next time")
             await ctx.send(embed=embed_fail)
 
@@ -836,16 +1039,24 @@ class Gambling(commands.Cog): # gambling commands
 
             if result_color == color:  # Player wins
                 add_score(ctx.author.id, profit)
+                xp_result = add_xp(ctx.author.id, 10)
                 embed = discord.Embed(title=f"Roulette Spin - {result} ({result_color.capitalize()})", description=f"{ctx.author} bet on {color} and won!", color=0x00ff00)
                 embed.add_field(name="Points Earned", value=f"+{profit}", inline=True)
+                embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                if xp_result['leveled_up'] > 0:
+                    embed.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
                 embed.set_footer(text=f"Fair payout: profit={base_profit}, bonus={bonus}")
                 await ctx.send(embed=embed)
             else:  # Player loses
                 add_score(ctx.author.id, -wager)
+                xp_result = add_xp(ctx.author.id, 3)
                 embed = discord.Embed(title=f"Roulette Spin - {result} ({result_color.capitalize()})", description=f"{ctx.author} bet on {color} and lost!", color=0xff0000)
                 embed.add_field(name="Points Lost", value=f"{wager}", inline=True)
+                embed.add_field(name="XP Earned", value=f"+{xp_result['gained']} XP", inline=True)
                 embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+                if xp_result['leveled_up'] > 0:
+                    embed.add_field(name="Level Up!", value=f"You reached level {xp_result['level']}!", inline=False)
                 embed.set_footer(text="Better luck next time")
                 await ctx.send(embed=embed)
 
@@ -957,8 +1168,6 @@ class Fun(commands.Cog): # fun commands
                             embed.add_field(name="Wager", value=f"{wager} points", inline=False)
                             embed.set_footer(text="React with the number of your answer (1-4)")
                             
-                            msg = await ctx.send(embed=embed)
-
                             # compute fair profit and escrow it from asker
                             choices = len(all_answers)
                             base_profit = max(1, int(round(wager * (choices - 1))))
@@ -974,6 +1183,13 @@ class Fun(commands.Cog): # fun commands
 
                             # escrow profit from asker
                             add_score(ctx.author.id, -profit)
+                            xp_start = add_xp(ctx.author.id, 5)
+
+                            embed.add_field(name="XP Earned", value=f"+{xp_start['gained']} XP", inline=False)
+                            if xp_start['leveled_up'] > 0:
+                                embed.add_field(name="Level Up!", value=f"You reached level {xp_start['level']}!", inline=False)
+
+                            msg = await ctx.send(embed=embed)
 
                             # Add number reactions for choices (unicode)
                             emojis = ['1️⃣', '2️⃣', '3️⃣', '4️⃣']
@@ -1025,6 +1241,9 @@ class Fun(commands.Cog): # fun commands
                                         per_winner = profit_total // len(winners)
                                         for uid in winners:
                                             add_score(uid, per_winner)
+                                            xp_result = add_xp(uid, 15)
+                                            if ch:
+                                                await ch.send(embed=discord.Embed(title="Trivia XP", description=f"<@{uid}> earned +{xp_result['gained']} XP for answering correctly!", color=0x00ff00))
                                         remainder = profit_total - (per_winner * len(winners))
                                         if remainder > 0:
                                             add_score(asker, remainder)
@@ -1094,5 +1313,71 @@ class Fun(commands.Cog): # fun commands
         except Exception as e:
             logging.error(f"Error processing trivia reaction: {e}")
 
+    @commands.hybrid_command(name="dig", description="Try to dig to find more points.")
+    async def dig(self, ctx):
+        import random
+        user_score = check_score(ctx.author.id)
+        if user_score is None:
+            await ctx.send("You have no points profile. Use `!daily` to start earning points!")
+            logging.info(f"{ctx.author} tried to dig with no points profile")
+            return
+
+ 
+ 
+   
+class Utility(commands.Cog): # utility commands
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.hybrid_command(name="timestamp", description="converts any selected time to a discord timestamp")
+    async def timestamp(self, ctx, days: int = 0, hours: int = 0, minutes: int = 0):
+
+        try:
+            # base datetime is now (UTC)
+            dt = datetime.utcnow().replace(tzinfo=timezone.utc)
+
+            # apply optional offsets (days/hours/minutes)
+            try:
+                offset = timedelta(days=days or 0, hours=hours or 0, minutes=minutes or 0)
+                if offset != timedelta(0):
+                    dt = dt + offset
+            except Exception:
+                if getattr(ctx, 'interaction', None):
+                    await ctx.reply("Invalid offset values. Use integers for days/hours/minutes.", ephemeral=True)
+                else:
+                    await ctx.author.send("Invalid offset values. Use integers for days/hours/minutes.")
+                return
+
+            ts = int(dt.timestamp())
+
+            # prepare Discord timestamp variants
+            long_fmt = f"<t:{ts}:F>"  # Full timestamp
+            short_fmt = f"<t:{ts}:f>"  # Short
+            relative = f"<t:{ts}:R>"   # Relative
+
+            message_text = (
+                "Discord timestamp (UTC) — copy any line to use:\n"
+                f"{long_fmt}\n{short_fmt}\n{relative}\n\n"
+                "Single copy-paste value: " + long_fmt
+            )
+
+            # send as ephemeral reply when possible, otherwise DM the user
+            if getattr(ctx, 'interaction', None):
+                await ctx.reply(message_text, ephemeral=True)
+            else:
+                try:
+                    await ctx.author.send(message_text)
+                    await ctx.send("I've DM'd you the timestamp.", delete_after=6)
+                except Exception:
+                    # fallback to normal reply
+                    await ctx.send(message_text)
+
+            logging.info(f"{ctx.author} created a discord timestamp at {ts}")
+        except Exception as e:
+            logging.error(f"Error in timestamp command: {e}")
+            if getattr(ctx, 'interaction', None):
+                await ctx.reply(f"Error: {e}", ephemeral=True)
+            else:
+                await ctx.send(f"Error: {e}")
 
 bot.run(token, log_handler=handler, log_level=logging.INFO, root_logger=True)
