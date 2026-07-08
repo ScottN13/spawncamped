@@ -51,7 +51,7 @@ def add_user(user_id): # adds a new user to scores.json, fallback if user doesn'
     scores = load_scores()
     user_id_str = str(user_id)
     
-    if user_id_str not in scores:
+    if user_id_str not in scores: # JSON, all necessary fields are initialized to default values
         scores[user_id_str] = {
             'total_score': 0,
             'daily_debt': 0,
@@ -174,11 +174,11 @@ def check_debt(user_id):
 
     return scores[user_id_str]['daily_debt']
 
-def check_bonus_multiplier(user_id):
+def check_bonus_multiplier(user_id): # because im too lazy to rewrite the function's name everywhere and miss something
     return get_effective_multiplier(user_id)
 
 
-def get_effective_multiplier(user_id):
+def get_effective_multiplier(user_id): # the permanent multiplier
     scores = load_scores()
     user_id_str = str(user_id)
 
@@ -201,7 +201,7 @@ def get_effective_multiplier(user_id):
     return base_multiplier
 
 
-def set_temporary_multiplier(user_id, multiplier_value, duration_seconds):
+def set_temporary_multiplier(user_id, multiplier_value, duration_seconds): # temporary shop multiplier, expires after duration_seconds
     scores = load_scores()
     user_id_str = str(user_id)
 
@@ -218,7 +218,9 @@ def set_temporary_multiplier(user_id, multiplier_value, duration_seconds):
     return expires_at
 
 
-MAX_LEVEL = 50
+########### LEVELS
+
+MAX_LEVEL = 50 # maximum level a user can reach, aka level cap
 
 
 def xp_required_for_level(level):
@@ -252,7 +254,7 @@ def add_xp(user_id, amount):
         }
 
     xp += int(amount)
-    while level < MAX_LEVEL:
+    while level < MAX_LEVEL: # Stop progressing if reached max level
         required = xp_required_for_level(level)
         if xp < required:
             break
@@ -338,6 +340,28 @@ def calc_bonus(user_id, limit, multiplier=None):
         multiplier = check_bonus_multiplier(user_id=user_id)
     limit_calc = random.randint(1, limit)
     return limit_calc, multiplier
+
+def get_dig(user_id): # basically how much stamina or shovel's durability. maximum 5. (see down below.)
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    return scores[user_id_str].get('dig', 0)
+
+def set_dig(user_id, value): # sets the dig value for a user
+    scores = load_scores()
+    user_id_str = str(user_id)
+
+    if user_id_str not in scores:
+        add_user(user_id)
+        scores = load_scores()
+
+    scores[user_id_str]['dig'] = value  
+    save_scores(scores)
+    return scores[user_id_str]['dig']
 
 # pending trivia questions: message_id -> {author, correct, answers, wager}
 TRIVIA_PENDING = {}
@@ -573,6 +597,72 @@ async def pin(ctx, message_id: int):
         say(f"[red]Error: {e}")
         logging.error(f"Error pinning message for {ctx.author} with id {message_id}: {e}")
 
+class ConfirmView(discord.ui.View):
+    def __init__(self, purchase_type: str, cost: int, purchaser_id: int, multiplier_value: float = None, duration_seconds: int = None, stamina_amount: int = None):
+        super().__init__(timeout=120)
+        self.purchase_type = purchase_type
+        self.cost = int(cost)
+        self.purchaser_id = int(purchaser_id)
+        self.multiplier_value = multiplier_value
+        self.duration_seconds = duration_seconds
+        self.stamina_amount = stamina_amount
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.green)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.purchaser_id:
+            await interaction.response.send_message("You did not initiate this purchase.", ephemeral=True)
+            return
+
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        if user_score is None or user_score < self.cost:
+            await interaction.response.edit_message(embed=discord.Embed(title="Purchase Failed", description=f"You do not have enough points (need {self.cost}).", color=0xff0000), view=None)
+            return
+
+        if self.purchase_type == 'multiplier':
+            expires_at = set_temporary_multiplier(user_id, float(self.multiplier_value), int(self.duration_seconds))
+            add_score(user_id, -self.cost)
+            embed = discord.Embed(title="Purchase Complete", description=f"You bought a temporary {self.multiplier_value}x multiplier.", color=0xffff00)
+            embed.add_field(name="Multiplier", value=f"{self.multiplier_value}x", inline=True)
+            embed.add_field(name="Duration", value=f"{format_duration(self.duration_seconds)}", inline=True)
+            embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
+            await interaction.response.edit_message(embed=embed, view=None)
+            logging.info(f"{interaction.user} purchased {self.multiplier_value}x temporary multiplier for {self.cost} points")
+
+        elif self.purchase_type == 'dig':
+            current = get_dig(user_id) or 0
+            new = current + int(self.stamina_amount)
+            set_dig(user_id, new)
+            add_score(user_id, -self.cost)
+            embed = discord.Embed(title="Dig Stamina Purchased", description=f"You purchased +{self.stamina_amount} stamina. Current stamina: {new}", color=0x00ff00)
+            await interaction.response.edit_message(embed=embed, view=None)
+            logging.info(f"{interaction.user} purchased +{self.stamina_amount} dig stamina (now {new}) for {self.cost} points")
+
+        else:
+            await interaction.response.edit_message(content="Unknown purchase type.", view=None)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.red)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.purchaser_id:
+            await interaction.response.send_message("You did not initiate this purchase.", ephemeral=True)
+            return
+        await interaction.response.edit_message(content="Purchase cancelled.", embed=None, view=None)
+        logging.info(f"{interaction.user} cancelled a purchase confirmation")
+
+    async def on_timeout(self):
+        try:
+            # disable buttons to prevent further interaction
+            for child in self.children:
+                child.disabled = True
+
+            if hasattr(self, 'message') and self.message:
+                try:
+                    await self.message.edit(content="Purchase timed out.", embed=None, view=self)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
 class ShopView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=300)
@@ -586,20 +676,12 @@ class ShopView(discord.ui.View):
             await interaction.response.send_message("You don't have enough points (need 100).", ephemeral=True)
             logging.warning(f"{interaction.user} tried to buy 1.1x multiplier with insufficient points")
             return
-        
-        duration = 60 * 60  # 1 hour
-        expires_at = set_temporary_multiplier(user_id, 1.1, duration)
-        add_score(user_id, -100)
-        embed = discord.Embed(
-            title="Multiplier Shop",
-            description="Thank you for your purchase! You bought a temporary 1.1x multiplier for 1 hour.",
-            color=0xffff00
-        )
-        embed.add_field(name="Multiplier", value="1.1x", inline=True)
-        embed.add_field(name="Duration", value="1 hour", inline=True)
-        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.1x temporary multiplier")
+
+        # send ephemeral confirmation
+        confirm_embed = discord.Embed(title="Confirm Purchase", description="Buy temporary 1.1x multiplier for 100 points?", color=0xffff00)
+        confirm_embed.add_field(name="Multiplier", value="1.1x", inline=True)
+        confirm_embed.add_field(name="Duration", value="1 hour", inline=True)
+        await interaction.response.send_message(embed=confirm_embed, view=ConfirmView(purchase_type='multiplier', cost=100, multiplier_value=1.1, duration_seconds=60*60, purchaser_id=user_id), ephemeral=True)
     
     @discord.ui.button(label="Buy 1.25x (300)", style=discord.ButtonStyle.green, custom_id="buy_1.25")
     async def buy_1_25(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -610,20 +692,11 @@ class ShopView(discord.ui.View):
             await interaction.response.send_message("You don't have enough points (need 300).", ephemeral=True)
             logging.warning(f"{interaction.user} tried to buy 1.25x multiplier with insufficient points")
             return
-        
-        duration = 2 * 60 * 60  # 2 hours
-        expires_at = set_temporary_multiplier(user_id, 1.25, duration)
-        add_score(user_id, -300)
-        embed = discord.Embed(
-            title="Multiplier Shop",
-            description="Thank you for your purchase! You bought a temporary 1.25x multiplier for 2 hours.",
-            color=0xffff00
-        )
-        embed.add_field(name="Multiplier", value="1.25x", inline=True)
-        embed.add_field(name="Duration", value="2 hours", inline=True)
-        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.25x temporary multiplier")
+
+        confirm_embed = discord.Embed(title="Confirm Purchase", description="Buy temporary 1.25x multiplier for 300 points?", color=0xffff00)
+        confirm_embed.add_field(name="Multiplier", value="1.25x", inline=True)
+        confirm_embed.add_field(name="Duration", value="2 hours", inline=True)
+        await interaction.response.send_message(embed=confirm_embed, view=ConfirmView(purchase_type='multiplier', cost=300, multiplier_value=1.25, duration_seconds=2*60*60, purchaser_id=user_id), ephemeral=True)
     
     @discord.ui.button(label="Buy 1.5x (500)", style=discord.ButtonStyle.green, custom_id="buy_1.5")
     async def buy_1_5(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -634,20 +707,65 @@ class ShopView(discord.ui.View):
             await interaction.response.send_message("You don't have enough points (need 500).", ephemeral=True)
             logging.warning(f"{interaction.user} tried to buy 1.5x multiplier with insufficient points")
             return
-        
-        duration = 3 * 60 * 60  # 3 hours
-        expires_at = set_temporary_multiplier(user_id, 1.5, duration)
-        add_score(user_id, -500)
-        embed = discord.Embed(
-            title="Multiplier Shop",
-            description="Thank you for your purchase! You bought a temporary 1.5x multiplier for 3 hours.",
-            color=0xffff00
-        )
-        embed.add_field(name="Multiplier", value="1.5x", inline=True)
-        embed.add_field(name="Duration", value="3 hours", inline=True)
-        embed.add_field(name="Expires At", value=f"<t:{expires_at}:F>", inline=False)
-        await interaction.response.edit_message(embed=embed, view=None)
-        logging.info(f"{interaction.user} purchased 1.5x temporary multiplier")
+
+        confirm_embed = discord.Embed(title="Confirm Purchase", description="Buy temporary 1.5x multiplier for 500 points?", color=0xffff00)
+        confirm_embed.add_field(name="Multiplier", value="1.5x", inline=True)
+        confirm_embed.add_field(name="Duration", value="3 hours", inline=True)
+        await interaction.response.send_message(embed=confirm_embed, view=ConfirmView(purchase_type='multiplier', cost=500, multiplier_value=1.5, duration_seconds=3*60*60, purchaser_id=user_id), ephemeral=True)
+
+
+class ShopMainView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    @discord.ui.button(label="Multipliers", style=discord.ButtonStyle.primary, custom_id="shop_multipliers")
+    async def multipliers(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(title="Multiplier Shop", description="Buy temporary multipliers to increase your earnings!", color=0xffff00)
+        embed.add_field(name="1.1x Multiplier", value="Cost: 100 points — Duration: 1 hour", inline=False)
+        embed.add_field(name="1.25x Multiplier", value="Cost: 300 points — Duration: 2 hours", inline=False)
+        embed.add_field(name="1.5x Multiplier", value="Cost: 500 points — Duration: 3 hours", inline=False)
+        await interaction.response.edit_message(embed=embed, view=ShopView())
+
+    @discord.ui.button(label="Dig Stamina", style=discord.ButtonStyle.secondary, custom_id="shop_dig")
+    async def dig_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(title="Dig Stamina Shop", description="Buy shovels/stamina to dig for treasure.", color=0x00ff00)
+        embed.add_field(name="+1 Stamina", value="Cost: 50 points — Adds 1 stamina", inline=False)
+        embed.add_field(name="+3 Stamina", value="Cost: 120 points — Adds 3 stamina", inline=False)
+        await interaction.response.edit_message(embed=embed, view=DigShopView())
+
+    @discord.ui.button(label="Close", style=discord.ButtonStyle.red, custom_id="shop_close")
+    async def close_shop(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Shop closed.", embed=None, view=None)
+        logging.info(f"{interaction.user} closed the shop")
+
+
+class DigShopView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+
+    @discord.ui.button(label="Buy +1 Stamina (50)", style=discord.ButtonStyle.green, custom_id="buy_dig_1")
+    async def buy_dig_1(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        if user_score is None or user_score < 50:
+            await interaction.response.send_message("You don't have enough points (need 50).", ephemeral=True)
+            return
+
+        confirm_embed = discord.Embed(title="Confirm Purchase", description="Buy +1 Stamina for 50 points?", color=0x00ff00)
+        confirm_embed.add_field(name="Amount", value="+1 Stamina", inline=True)
+        await interaction.response.send_message(embed=confirm_embed, view=ConfirmView(purchase_type='dig', cost=50, stamina_amount=1, purchaser_id=user_id), ephemeral=True)
+
+    @discord.ui.button(label="Buy +3 Stamina (120)", style=discord.ButtonStyle.green, custom_id="buy_dig_3")
+    async def buy_dig_3(self, interaction: discord.Interaction, button: discord.ui.Button):
+        user_id = interaction.user.id
+        user_score = check_score(user_id)
+        if user_score is None or user_score < 120:
+            await interaction.response.send_message("You don't have enough points (need 120).", ephemeral=True)
+            return
+
+        confirm_embed = discord.Embed(title="Confirm Purchase", description="Buy +3 Stamina for 120 points?", color=0x00ff00)
+        confirm_embed.add_field(name="Amount", value="+3 Stamina", inline=True)
+        await interaction.response.send_message(embed=confirm_embed, view=ConfirmView(purchase_type='dig', cost=120, stamina_amount=3, purchaser_id=user_id), ephemeral=True)
 
 class Social(commands.Cog): # Social stuff for servers 
     def __init__(self, bot):
@@ -668,10 +786,10 @@ class leaderboard(commands.Cog): # i seperated these for organization
         
         limit_calc, multiplier = calc_bonus(user_id=ctx.author.id, limit=50, multiplier=check_bonus_multiplier(ctx.author.id))
 
-        points = 100
+        points = 100 # Daily points
         bonus = int(limit_calc * multiplier)
-        add_score(ctx.author.id, points + bonus)
-        xp_result = add_xp(ctx.author.id, 20)
+        add_score(ctx.author.id, points + bonus) # add total points to user's score
+        xp_result = add_xp(ctx.author.id, 20) # add xp
         # mark last daily claimed
         scores = load_scores()
         scores[str(ctx.author.id)]['last_daily_claimed'] = datetime.now().strftime('%Y-%m-%d')
@@ -839,13 +957,15 @@ class leaderboard(commands.Cog): # i seperated these for organization
             description=f"Statistics for {target.mention}",
             color=0x0000ff
         )
+
+        xp_result = get_xp_progress(ctx.author.id)
+
         embed.set_author(name=target.display_name, icon_url=avatar_url)
         embed.set_thumbnail(url=avatar_url)
         embed.add_field(name="Total Score", value=f"{score} points", inline=True)
         embed.add_field(name="Total Debt", value=f"{debt} points", inline=True)
-        embed.add_field(name="Level", value=f"{level}{' (MAX)' if level >= MAX_LEVEL else ''}", inline=False)
-        embed.add_field(name="XP", value=display_xp, inline=True)
-        embed.add_field(name="Effective Multiplier", value=f"{effective:.2f}x", inline=True)
+        embed.add_field(name="Level", value=f"{level}{' (MAX)' if level >= MAX_LEVEL else f''}", inline=False)
+        embed.add_field(name="Permanent Multiplier", value=f"{effective:.2f}x", inline=True)
         embed.add_field(name="Temporary Multiplier", value=temp_text, inline=False)
         embed.set_footer(text="Use !daily to earn more points! Use points to gamble.")
 
@@ -857,14 +977,12 @@ class leaderboard(commands.Cog): # i seperated these for organization
 
     @commands.hybrid_command(name="shop", description="shows the multiplier shop")
     async def shop(self, ctx):
-        embed = discord.Embed(title="Multiplier Shop", description="Buy bonus multipliers to increase your earnings!", color=0xffff00)
-        embed.add_field(name="1.1x Multiplier", value="Cost: 100 points\nIncreases all earnings by 10%.", inline=False)
-        embed.add_field(name="1.25x Multiplier", value="Cost: 300 points\nIncreases all earnings by 25%.", inline=False)
-        embed.add_field(name="1.5x Multiplier", value="Cost: 500 points\nIncreases all earnings by 50%.", inline=False)
-        
-        view = ShopView()
+        embed = discord.Embed(title="Shop", description="Welcome to the shop — select a category below to browse items.", color=0xffff00)
+        embed.add_field(name="Categories", value="• Multipliers\n• Dig Stamina", inline=False)
+
+        view = ShopMainView()
         await ctx.send(embed=embed, view=view)
-        logging.info(f"{ctx.author} viewed the multiplier shop")
+        logging.info(f"{ctx.author} viewed the shop")
 
 class Gambling(commands.Cog): # gambling commands
     def __init__(self, bot):
@@ -1128,7 +1246,6 @@ class Fun(commands.Cog): # fun commands
         response = random.choice(responses)
         embed = discord.Embed(title="Magic 8-Ball", description=f"{ctx.author} asked: *{question}*", color=0x000000)
         embed.add_field(name="Answer", value=response, inline=False)
-        embed.set_footer(text="🔮")
         await ctx.send(embed=embed)
         logging.info(f"{ctx.author} asked the magic 8-ball: {question}")
 
@@ -1278,7 +1395,7 @@ class Fun(commands.Cog): # fun commands
             if not entry:
                 return
 
-            emoji_map = {'1️⃣': 0, '2️⃣': 1, '3️⃣': 2, '4️⃣': 3}
+            emoji_map = {'1️⃣': 0, '2️⃣': 1, '3️⃣': 2, '4️⃣': 3} #blame copilot
             idx = emoji_map.get(str(reaction.emoji))
             if idx is None:
                 return
@@ -1313,16 +1430,74 @@ class Fun(commands.Cog): # fun commands
         except Exception as e:
             logging.error(f"Error processing trivia reaction: {e}")
 
-    @commands.hybrid_command(name="dig", description="Try to dig to find more points.")
+    @commands.hybrid_command(name="dig", description="Try to dig to find treasure.")
     async def dig(self, ctx):
         import random
         user_score = check_score(ctx.author.id)
+
         if user_score is None:
             await ctx.send("You have no points profile. Use `!daily` to start earning points!")
             logging.info(f"{ctx.author} tried to dig with no points profile")
             return
+        
+        dig_stamina = get_dig(ctx.author.id)
 
- 
+        if dig_stamina is None or dig_stamina <= 0:
+            await ctx.send("You have no shovels left. Use `!daily` to restore your stamina or buy from the shop.")
+            logging.info(f"{ctx.author} tried to dig with no stamina")
+            return
+        # continues if stamina isnt 0
+        # consume one stamina point, make sure it doesn't go below 0
+        new_stamina = max(0, dig_stamina - 1)
+        set_dig(ctx.author.id, new_stamina)
+
+        found_chance = random.randint(1, 100)
+        multiplier = float(check_bonus_multiplier(ctx.author.id) or 1.0)
+
+        # outcomes
+        if found_chance in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]:  # lucky numbers - big treasure
+            base_points = 500
+            total_points = int(base_points * multiplier)
+            add_score(ctx.author.id, total_points)
+            embed = discord.Embed(title="Digging for treasure...", description=f"{ctx.author} dug and found a treasure! Got {total_points} points!", color=0x00ff00)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="Wowie!")
+            await ctx.send(embed=embed)
+            say(f"{ctx.author} dug and found a treasure! Got {total_points} points")
+            logging.info(f"{ctx.author} dug and found a treasure! Got {total_points} points")
+            return
+
+        elif found_chance in [31, 37, 41, 43, 67]:  # prime numbers, basic win
+            base_points = random.randint(10, 50)
+            total_points = int(base_points * multiplier)
+            add_score(ctx.author.id, total_points)
+            embed = discord.Embed(title="Digging for treasure...", description=f"{ctx.author} dug and found {total_points} points!", color=0x00ff00)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="Lucky you!")
+            await ctx.send(embed=embed)
+            say(f"{ctx.author} dug and found {total_points} points")
+            logging.info(f"{ctx.author} dug and found {total_points} points")
+            return
+
+        elif found_chance >= 90:  # unlucky
+            points_lost = random.randint(5, 20)
+            add_score(ctx.author.id, -points_lost)
+            embed = discord.Embed(title="Digging for treasure...", description=f"{ctx.author} dug and found a landmine! Lost {points_lost} points!", color=0xff0000)
+            embed.add_field(name="Your points after this:", value=f"{check_score(ctx.author.id)}", inline=True)
+            embed.set_footer(text="ouchies!")
+            await ctx.send(embed=embed)
+            say(f"{ctx.author} dug and hit a landmine! Lost {points_lost} points")
+            logging.info(f"{ctx.author} dug and lost {points_lost} points")
+            return
+
+        else:  # found nothing
+            embed = discord.Embed(title="Digging for treasure...", description=f"{ctx.author} dug and found no points!", color=0xff0000)
+            embed.set_footer(text="Better luck next time!")
+            await ctx.send(embed=embed)
+            say(f"{ctx.author} dug and found no points, {found_chance}")
+            logging.info(f"{ctx.author} dug and found no points")
+            return
+    
  
    
 class Utility(commands.Cog): # utility commands
